@@ -1,0 +1,62 @@
+# ── Environment ───────────────────────────────────────────────────────────────
+.env
+*.env.local
+
+# ── Java / Maven / Gradle ─────────────────────────────────────────────────────
+*.class
+*.jar
+*.war
+*.ear
+target/
+build/
+.gradle/
+*.iml
+.mvn/
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+dist/
+*.pkl
+*.model
+
+# ── Node ──────────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ── Docker / Compose ──────────────────────────────────────────────────────────
+docker-compose.override.yml
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Prometheus / Grafana data ─────────────────────────────────────────────────
+prometheus-data/
+grafana-data/
+
+# ── Downloaded binaries (run download-jmx-agent.sh to fetch) ─────────────────
+infra/prometheus/jmx-config/*.jar
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+context.json

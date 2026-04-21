@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: kafka-brokers
+    static_configs:
+      - targets:
+          - kafka-1:7071
+          - kafka-2:7071
+          - kafka-3:7071
+        labels:
+          cluster: aerostream-local
+
+  - job_name: schema-registry
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - schema-registry:8081
