@@ -1,0 +1,9 @@
+spring:
+  kafka:
+    bootstrap-servers: kafka-1:9092,kafka-2:9092,kafka-3:9092
+    properties:
+      schema.registry.url: http://schema-registry:8081
+
+simulator:
+  events-per-second: ${SIMULATOR_EVENTS_PER_SECOND:10000}
+  enabled: false

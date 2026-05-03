@@ -1,0 +1,39 @@
+{
+  "type": "record",
+  "name": "TelemetryEvent",
+  "namespace": "com.aerostream.avro",
+  "doc": "Real-time telemetry event from an F1 car sensor array",
+  "fields": [
+    {"name": "car_id",         "type": "string",  "doc": "Car number identifier e.g. CAR_01"},
+    {"name": "driver_id",      "type": "string",  "doc": "Driver identifier e.g. DRV_01"},
+    {"name": "session_id",     "type": "string",  "doc": "Race session e.g. RACE_2024_MONZA_R1"},
+    {"name": "timestamp_ms",   "type": "long",    "doc": "Unix epoch milliseconds"},
+    {"name": "lap",            "type": "int",     "doc": "Current lap number (1-indexed)"},
+    {"name": "sector",         "type": "int",     "doc": "Track sector 1, 2, or 3"},
+    {"name": "speed_kph",      "type": "double",  "doc": "Speed in kilometres per hour"},
+    {"name": "rpm",            "type": "int",     "doc": "Engine revolutions per minute"},
+    {"name": "gear",           "type": "int",     "doc": "Current gear (0=neutral, 1-8)"},
+    {"name": "throttle_pct",   "type": "double",  "doc": "Throttle application 0.0-100.0"},
+    {"name": "brake_pct",      "type": "double",  "doc": "Brake application 0.0-100.0"},
+    {"name": "drs_active",     "type": "boolean", "doc": "DRS (drag reduction system) active"},
+    {"name": "tire_compound",  "type": {
+      "type": "enum",
+      "name": "TireCompound",
+      "namespace": "com.aerostream.avro",
+      "symbols": ["SOFT", "MEDIUM", "HARD", "INTER", "WET"]
+    }, "doc": "Current tire compound fitted"},
+    {"name": "tire_temp_fl",   "type": "double",  "doc": "Front-left tire surface temp Celsius"},
+    {"name": "tire_temp_fr",   "type": "double",  "doc": "Front-right tire surface temp Celsius"},
+    {"name": "tire_temp_rl",   "type": "double",  "doc": "Rear-left tire surface temp Celsius"},
+    {"name": "tire_temp_rr",   "type": "double",  "doc": "Rear-right tire surface temp Celsius"},
+    {"name": "tire_wear_fl",   "type": "double",  "doc": "Front-left tire wear 0.0-100.0 percent"},
+    {"name": "tire_wear_fr",   "type": "double",  "doc": "Front-right tire wear 0.0-100.0 percent"},
+    {"name": "tire_wear_rl",   "type": "double",  "doc": "Rear-left tire wear 0.0-100.0 percent"},
+    {"name": "tire_wear_rr",   "type": "double",  "doc": "Rear-right tire wear 0.0-100.0 percent"},
+    {"name": "fuel_load_kg",   "type": "double",  "doc": "Remaining fuel in kilograms"},
+    {"name": "engine_temp_c",  "type": "double",  "doc": "Engine coolant temperature Celsius"},
+    {"name": "ers_deploy_pct", "type": "double",  "doc": "ERS energy deployment percentage 0.0-100.0"},
+    {"name": "g_force_lat",    "type": "double",  "doc": "Lateral g-force (cornering)"},
+    {"name": "g_force_lon",    "type": "double",  "doc": "Longitudinal g-force (acceleration/braking)"}
+  ]
+}

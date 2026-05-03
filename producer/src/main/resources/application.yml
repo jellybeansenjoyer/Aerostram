@@ -1,0 +1,39 @@
+spring:
+  application:
+    name: aerostream-producer
+  kafka:
+    bootstrap-servers: localhost:9092,localhost:9094,localhost:9096
+    properties:
+      schema.registry.url: http://localhost:8081
+
+server:
+  port: 8090
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,metrics,info
+  endpoint:
+    health:
+      show-details: always
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+kafka:
+  topics:
+    raw-telemetry: raw-telemetry
+    dlq-telemetry: dlq-telemetry
+
+simulator:
+  events-per-second: 500
+  num-cars: 20
+  session-id: "RACE_2024_MONZA_R1"
+  enabled: false
+
+logging:
+  level:
+    com.aerostream: INFO
+    org.apache.kafka: WARN
