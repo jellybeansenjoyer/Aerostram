@@ -61,6 +61,23 @@ create_topic dlq-telemetry \
   --partitions 3 --replication-factor 3 \
   --config retention.ms=604800000
 
+# ── Phase 3: Reference data + Kafka Connect internal topics ───────────────────
+create_topic driver-profiles \
+  --partitions 5 --replication-factor 3 \
+  --config cleanup.policy=compact
+
+create_topic connect-configs \
+  --partitions 1 --replication-factor 3 \
+  --config cleanup.policy=compact
+
+create_topic connect-offsets \
+  --partitions 25 --replication-factor 3 \
+  --config cleanup.policy=compact
+
+create_topic connect-status \
+  --partitions 5 --replication-factor 3 \
+  --config cleanup.policy=compact
+
 echo ""
 echo "ALL TOPICS CREATED. Current topic list:"
 docker exec -e KAFKA_OPTS='' $CONTAINER kafka-topics --bootstrap-server $BROKER --list

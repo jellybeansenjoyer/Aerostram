@@ -57,6 +57,9 @@ grafana-data/
 # ── Downloaded binaries (run download-jmx-agent.sh to fetch) ─────────────────
 infra/prometheus/jmx-config/*.jar
 
+# Kafka Connect — Debezium plugins (run infra/scripts/download-connect-plugins.sh)
+infra/kafka-connect/plugins/
+
 # ── Jupyter ───────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
 context.json

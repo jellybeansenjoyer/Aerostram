@@ -1,0 +1,7 @@
+{
+  "type": "enum",
+  "name": "TireCompound",
+  "namespace": "com.aerostream.avro",
+  "doc": "Tire compound — shared by TelemetryEvent and EnrichedTelemetryEvent (single definition avoids Avro 'Can't redefine' during codegen)",
+  "symbols": ["SOFT", "MEDIUM", "HARD", "INTER", "WET"]
+}

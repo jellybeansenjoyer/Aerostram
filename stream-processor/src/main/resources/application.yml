@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: aerostream-stream-processor
+  kafka:
+    bootstrap-servers: localhost:9092,localhost:9094,localhost:9096
+    streams:
+      application-id: aerostream-enrichment-v1
+      properties:
+        schema.registry.url: http://localhost:8081
+        processing.guarantee: exactly_once_v2
+        num.stream.threads: 2
+        commit.interval.ms: 100
+
+server:
+  port: 8091
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,metrics,info
+  endpoint:
+    health:
+      show-details: always
+
+kafka:
+  topics:
+    raw-telemetry: raw-telemetry
+    circuit-metadata: circuit-metadata
+    driver-profiles: driver-profiles
+    enriched-telemetry: enriched-telemetry
+
+logging:
+  level:
+    com.aerostream: INFO
+    org.apache.kafka.streams: WARN

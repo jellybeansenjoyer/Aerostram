@@ -17,3 +17,30 @@ scrape_configs:
     static_configs:
       - targets:
           - schema-registry:8081
+
+  - job_name: aerostream-producer
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - aerostream-producer:8090
+        labels:
+          service: producer
+          cluster: aerostream-local
+
+  - job_name: kafka-connect
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - kafka-connect:8083
+        labels:
+          service: kafka-connect
+          cluster: aerostream-local
+
+  - job_name: aerostream-stream-processor
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - aerostream-stream-processor:8091
+        labels:
+          service: stream-processor
+          cluster: aerostream-local
