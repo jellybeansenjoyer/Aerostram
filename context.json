@@ -1,0 +1,798 @@
+{
+  "project": "AeroStream",
+  "description": "Real-time Formula 1 telemetry processing platform. Kafka (KRaft) + Kafka Streams + Debezium CDC + ksqlDB + Python ML inference consumer.",
+  "stack": {
+    "kafka": "confluentinc/cp-kafka:7.6.1 — KRaft combined mode (broker + controller), no ZooKeeper",
+    "schema_registry": "confluentinc/cp-schema-registry:7.6.1 — BACKWARD compatibility",
+    "kafka_ui": "provectuslabs/kafka-ui:latest",
+    "prometheus": "prom/prometheus:v2.51.0",
+    "grafana": "grafana/grafana:10.4.0",
+    "stream_processor": "Spring Boot 3 + Kafka Streams 3.6 (Phase 3)",
+    "ksqldb": "confluentinc/cp-ksqldb-server:7.6.1 — hopping-window CTAS to stream-aggregates (Phase 4)",
+    "ml_consumer": "Python 3.11 + confluent-kafka-python 2.3 + scikit-learn 1.4 (Phase 5)"
+  },
+  "phases": {
+    "phase_1": {
+      "name": "Infrastructure Foundation",
+      "status": "completed",
+      "estimate": "~10 hours",
+      "issues": {
+        "INFRA-1": {
+          "title": "Bootstrap: Monorepo Structure & Environment Config",
+          "priority": "Low",
+          "estimate": "1 hour",
+          "status": "completed",
+          "description": "Foundational project skeleton. Defines environment variables, Docker Compose network structure, and the complete directory layout before any service code is written.",
+          "deliverables": [
+            "Full monorepo directory tree: producer/, stream-processor/, ml-consumer/, infra/, docs/",
+            ".env.example with all service port and credential placeholders (9+ entries)",
+            ".gitignore covering Java, Python, Docker, IDE files — .env excluded from VCS",
+            "Skeleton docker-compose.yml with aerostream-network bridge network, empty services/volumes",
+            "Root README.md with architecture diagram, phase table, quick-start, service endpoints, topic reference",
+            "infra/scripts/create-topics.sh and validate-cluster.sh — executable skeletons"
+          ],
+          "files_created": [
+            ".env.example",
+            ".gitignore",
+            "docker-compose.yml",
+            "README.md",
+            "infra/scripts/create-topics.sh",
+            "infra/scripts/validate-cluster.sh",
+            "infra/kafka/kraft-config/",
+            "infra/schema-registry/",
+            "infra/prometheus/jmx-config/",
+            "infra/grafana/provisioning/datasources/",
+            "infra/grafana/provisioning/dashboards/",
+            "infra/grafana/dashboards/",
+            "producer/",
+            "stream-processor/",
+            "ml-consumer/app/",
+            "ml-consumer/models/",
+            "ml-consumer/schemas/",
+            "ml-consumer/notebooks/",
+            "docs/"
+          ],
+          "completed_at": "2026-04-20",
+          "notes": "docker compose config validates without errors. .env is .gitignored. README quick-start is accurate."
+        },
+        "INFRA-2": {
+          "title": "KRaft Kafka Cluster — 3-Broker Combined Mode (No ZooKeeper)",
+          "priority": "Critical",
+          "estimate": "3–4 hours",
+          "status": "completed",
+          "description": "3-broker Kafka cluster in KRaft combined mode. Each node acts as both broker and controller. No ZooKeeper. This is the gating task for INFRA-3 through INFRA-6.",
+          "key_decisions": {
+            "kraft_mode": "KAFKA_PROCESS_ROLES=broker,controller on all 3 nodes. Each node participates in both the controller quorum and the data plane.",
+            "listeners": "3 listener types per broker: CONTROLLER (29093) for Raft election, PLAINTEXT (9092) for internal inter-broker, PLAINTEXT_HOST (9093/9094/9096) for external client access.",
+            "replication": "KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=3 and KAFKA_MIN_INSYNC_REPLICAS=2 — cluster tolerates 1 broker failure without losing writes.",
+            "auto_create": "KAFKA_AUTO_CREATE_TOPICS_ENABLE=false — topics are explicitly provisioned by create-topics.sh to ensure correct partition counts and configs."
+          },
+          "deliverables": [
+            "kafka-1, kafka-2, kafka-3 services in docker-compose.yml (confluentinc/cp-kafka:7.6.1)",
+            "KAFKA_PROCESS_ROLES=broker,controller (KRaft combined mode, no ZooKeeper)",
+            "KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka-1:29093,2@kafka-2:29093,3@kafka-3:29093",
+            "Named volumes: kafka-1-data, kafka-2-data, kafka-3-data (data persists across restarts)",
+            "HEALTHCHECK: kafka-topics.sh --list — retries=10, start_period=30s",
+            "infra/scripts/init-kafka-storage.sh — auto-generates CLUSTER_ID and writes to .env"
+          ],
+          "files_created": [
+            "infra/scripts/init-kafka-storage.sh"
+          ],
+          "files_modified": [
+            "docker-compose.yml — added kafka-1, kafka-2, kafka-3 services and volumes"
+          ],
+          "completed_at": "2026-04-20",
+          "notes": "KAFKA_CLUSTER_ID must be generated before first docker compose up. Run: bash infra/scripts/init-kafka-storage.sh"
+        },
+        "INFRA-3": {
+          "title": "Confluent Schema Registry — BACKWARD Compatibility",
+          "priority": "High",
+          "estimate": "1 hour",
+          "status": "completed",
+          "description": "Schema Registry as the data governance layer for all Avro-serialized events. BACKWARD compatibility enforced globally — consumers are never broken by producer schema upgrades.",
+          "key_decisions": {
+            "compatibility": "BACKWARD globally (not FULL or NONE). Producers can add optional fields with defaults. Existing consumers reading older messages will never fail.",
+            "replication": "KAFKASTORE_TOPIC_REPLICATION_FACTOR=3 — the internal _schemas topic is replicated like all other production topics.",
+            "dependency": "depends_on: service_healthy for all 3 brokers — Schema Registry will not start until the full Kafka quorum is available."
+          },
+          "deliverables": [
+            "schema-registry service in docker-compose.yml (confluentinc/cp-schema-registry:7.6.1)",
+            "Port exposed on SCHEMA_REGISTRY_PORT (default 8081)",
+            "HEALTHCHECK: curl -f http://localhost:8081/subjects — retries=10, start_period=20s",
+            "infra/scripts/configure-schema-registry.sh — idempotent, sets BACKWARD via REST API PUT /config"
+          ],
+          "files_created": [
+            "infra/scripts/configure-schema-registry.sh"
+          ],
+          "files_modified": [
+            "docker-compose.yml — added schema-registry service"
+          ],
+          "completed_at": "2026-04-20",
+          "notes": "Run bash infra/scripts/configure-schema-registry.sh after docker compose up to set BACKWARD compatibility."
+        },
+        "INFRA-4": {
+          "title": "Kafka UI — Visual Cluster Dashboard (Provectus)",
+          "priority": "Medium",
+          "estimate": "30 minutes",
+          "status": "completed",
+          "description": "Provectus kafka-ui for browser-based visual management. Enables topic inspection, message browsing (with Avro deserialization), consumer group lag viewing, and schema registry exploration.",
+          "key_decisions": {
+            "auth": "AUTH_TYPE=disabled for local development. DYNAMIC_CONFIG_ENABLED=true allows runtime configuration changes.",
+            "metrics_port": "KAFKA_CLUSTERS_0_METRICS_PORT=7071 pre-wired to the JMX exporter port (INFRA-5) — metrics populate once JMX is configured."
+          },
+          "deliverables": [
+            "kafka-ui service in docker-compose.yml (provectuslabs/kafka-ui:latest)",
+            "Connected to all 3 brokers and Schema Registry for Avro deserialization in UI",
+            "restart: unless-stopped — survives Docker restarts"
+          ],
+          "files_modified": [
+            "docker-compose.yml — added kafka-ui service"
+          ],
+          "completed_at": "2026-04-20",
+          "notes": "Access at http://localhost:8080. No auth in development mode."
+        },
+        "INFRA-5": {
+          "title": "JMX Exporter + Prometheus + Grafana Observability Stack",
+          "priority": "High",
+          "estimate": "2.5 hours",
+          "status": "completed",
+          "description": "JMX Prometheus Java Agent attached to all 3 Kafka brokers. Prometheus scrapes broker metrics at 15s intervals. Grafana provisioned with Prometheus datasource and dashboard file provider.",
+          "key_decisions": {
+            "jmx_agent": "jmx_prometheus_javaagent-0.19.0.jar via KAFKA_OPTS=-javaagent. Exposes Kafka JMX metrics as Prometheus /metrics on port 7071 inside each container.",
+            "jmx_rules": "kafka-jmx.yml captures BrokerTopicMetrics, ReplicaManager, KafkaController, RequestMetrics. Catch-all '.*' rule exports remaining JMX attributes.",
+            "retention": "Prometheus 15-day TSDB retention (--storage.tsdb.retention.time=15d). Sufficient for sprint-length development cycles.",
+            "grafana_provisioning": "Datasource and dashboard provider are file-provisioned — Grafana automatically loads them on startup without manual UI configuration."
+          },
+          "deliverables": [
+            "KAFKA_OPTS=-javaagent on all 3 brokers, jmx-config volume mounted as /etc/kafka/jmx-agent",
+            "infra/prometheus/jmx-config/kafka-jmx.yml — JMX metric scraping rules",
+            "infra/prometheus/prometheus.yml — scrapes kafka-1:7071, kafka-2:7071, kafka-3:7071 and schema-registry:8081",
+            "prometheus service (prom/prometheus:v2.51.0), port 9090, 15-day retention",
+            "infra/grafana/provisioning/datasources/prometheus.yml — auto-provisions Prometheus datasource",
+            "infra/grafana/provisioning/dashboards/provider.yml — scans /var/lib/grafana/dashboards",
+            "grafana service (grafana/grafana:10.4.0), port 3000, grafana-data named volume",
+            "infra/scripts/download-jmx-agent.sh — downloads the JAR (must run before docker compose up)"
+          ],
+          "files_created": [
+            "infra/prometheus/jmx-config/kafka-jmx.yml",
+            "infra/prometheus/prometheus.yml",
+            "infra/grafana/provisioning/datasources/prometheus.yml",
+            "infra/grafana/provisioning/dashboards/provider.yml",
+            "infra/scripts/download-jmx-agent.sh"
+          ],
+          "files_modified": [
+            "docker-compose.yml — added KAFKA_OPTS and jmx-config volume to all 3 brokers; added prometheus and grafana services; added grafana-data volume"
+          ],
+          "completed_at": "2026-04-20",
+          "notes": "Run bash infra/scripts/download-jmx-agent.sh BEFORE docker compose up to download the JMX JAR. Grafana default login: admin/admin."
+        },
+        "INFRA-6": {
+          "title": "Topic Provisioning Script + Phase 1 Validation Suite",
+          "priority": "High",
+          "estimate": "2 hours",
+          "status": "completed",
+          "description": "Idempotent topic creation for all 7 AeroStream topics with correct partition counts, replication factors, and retention/compaction policies. Plus a comprehensive PASS/FAIL validation suite.",
+          "topics": {
+            "raw-telemetry": {
+              "partitions": 20,
+              "replication_factor": 3,
+              "retention_ms": 7200000,
+              "note": "20 partitions match 20 simulated cars for key-based partitioning. 2h retention (high volume)."
+            },
+            "enriched-telemetry": {
+              "partitions": 20,
+              "replication_factor": 3,
+              "retention_ms": 21600000,
+              "note": "6h retention — downstream consumers (Phase 5 ML) can catch up after brief outage."
+            },
+            "stream-aggregates": {
+              "partitions": 10,
+              "replication_factor": 3,
+              "retention_ms": 86400000,
+              "note": "Phase 4 ksqlDB CTAS sink (JSON aggregate changelog). Topic created by ksqlDB deploy script — not create-topics.sh. 24h retention."
+            },
+            "pit-predictions": {
+              "partitions": 5,
+              "replication_factor": 3,
+              "retention_ms": 86400000,
+              "note": "ML consumer output. 5 partitions sufficient (lower throughput than telemetry). 24h retention."
+            },
+            "race-outcomes": {
+              "partitions": 5,
+              "replication_factor": 3,
+              "cleanup_policy": "compact",
+              "note": "Compacted — stores final race result per carId key. Historical results always readable."
+            },
+            "dlq-telemetry": {
+              "partitions": 3,
+              "replication_factor": 3,
+              "retention_ms": 604800000,
+              "note": "Dead letter queue. 7-day retention for debugging deserialization failures."
+            },
+            "circuit-metadata": {
+              "partitions": 3,
+              "replication_factor": 3,
+              "cleanup_policy": "compact",
+              "note": "Compacted reference data — circuit config keyed by circuitId. Always available for enrichment."
+            }
+          },
+          "deliverables": [
+            "infra/scripts/create-topics.sh — idempotent (--if-not-exists), creates all 7 topics with correct configs",
+            "infra/scripts/validate-cluster.sh — 11 PASS/FAIL checks across brokers, topics, Schema Registry, Prometheus, Grafana"
+          ],
+          "files_modified": [
+            "infra/scripts/create-topics.sh — fully implemented",
+            "infra/scripts/validate-cluster.sh — fully implemented"
+          ],
+          "completed_at": "2026-04-20",
+          "notes": "Run create-topics.sh after docker compose up and brokers are healthy. validate-cluster.sh must exit 0 before starting Phase 2."
+        }
+      },
+      "definition_of_done": [
+        "3 brokers healthy: docker compose ps shows all kafka-1/2/3 as (healthy)",
+        "No ZooKeeper: docker ps | grep zookeeper returns zero results",
+        "7 topics with RF=3: kafka-topics.sh --describe shows ReplicationFactor: 3 on all 7",
+        "Compacted topics: race-outcomes + circuit-metadata show cleanup.policy=compact",
+        "Schema Registry up: curl localhost:8081/subjects returns HTTP 200 []",
+        "BACKWARD compatibility: curl localhost:8081/config returns {\"compatibilityLevel\":\"BACKWARD\"}",
+        "Prometheus scraping: localhost:9090/api/v1/targets shows 3 kafka-broker targets state=up",
+        "Grafana accessible: curl localhost:3000/api/health returns {\"database\":\"ok\"}",
+        "Kafka UI accessible: http://localhost:8080 shows 3 online brokers",
+        "Validation script: bash infra/scripts/validate-cluster.sh prints ALL CHECKS PASSED"
+      ],
+      "startup_sequence": [
+        "cp .env.example .env",
+        "bash infra/scripts/download-jmx-agent.sh",
+        "bash infra/scripts/init-kafka-storage.sh",
+        "docker compose up -d",
+        "bash infra/scripts/create-topics.sh",
+        "bash infra/scripts/configure-schema-registry.sh",
+        "bash infra/scripts/validate-cluster.sh"
+      ],
+      "completion_summary": "Delivered a production-shaped single-region stack: three KRaft brokers (RF=3 / ISR=2 posture), Schema Registry with BACKWARD compatibility, Kafka UI, full observability (JMX agent → Prometheus → Grafana), idempotent topic provisioning (including Connect internal topics added in Phase 3), and validate-cluster.sh gate.",
+      "completed_at": "2026-04-20"
+    },
+    "phase_2": {
+      "name": "Telemetry Simulator & Avro Producer",
+      "status": "completed",
+      "estimate": "~12 hours",
+      "stack": {
+        "language": "Java 21",
+        "framework": "Spring Boot 3.2.5",
+        "build": "Maven 3.9 + avro-maven-plugin 1.11.3",
+        "messaging": "spring-kafka + kafka-avro-serializer 7.6.1",
+        "schema": "Apache Avro 1.11.3 — 26-field TelemetryEvent",
+        "observability": "Micrometer + Prometheus actuator endpoint",
+        "container": "amazoncorretto:21-alpine (runtime), maven:3.9-amazoncorretto-21 (build)"
+      },
+      "key_decisions": {
+        "delivery_semantics": "enable.idempotence=true + acks=all + retries=MAX_VALUE — exactly-once at producer side. Prevents duplicates at 10k events/sec.",
+        "batching": "batch.size=65536 (64KB) + linger.ms=5 + compression.type=lz4 — ~60% network reduction under high throughput.",
+        "partitioning": "Custom TelemetryPartitioner: Math.abs(carId.hashCode()) % numPartitions — all events for the same car land on the same partition, enabling ordered Kafka Streams windowed aggregations in Phase 3.",
+        "avro_schema": "Full 26-field schema from day one (tire wear, ERS, g-force, DRS, sector). BACKWARD compatibility means new optional fields can be added safely without breaking Phase 3/5 consumers.",
+        "simulation_threading": "ScheduledExecutorService pool-size=4, delay computed from events-per-second config. 20 cars × configured rate. Configurable without code change.",
+        "dlq_design": "Separate KafkaTemplate<String, byte[]> for DLQ — no Avro serialization, RETRIES=0, ACKS=1. DLQ failures must never block the main pipeline.",
+        "java_version": "Java 21 (LTS) — virtual threads available, modern records/pattern matching, amazoncorretto:21-alpine keeps Docker image small."
+      },
+      "issues": {
+        "PROD-1": {
+          "title": "Spring Boot Project Bootstrap — Maven, Java 21, Dockerfile",
+          "priority": "Critical",
+          "estimate": "1.5 hours",
+          "status": "pending",
+          "description": "Scaffold the Spring Boot 3.2.x Maven project under producer/. Multi-stage Dockerfile and docker-compose.yml integration so the service is container-runnable from day one.",
+          "deliverables": [
+            "producer/pom.xml — Spring Boot 3.2.5 parent, Java 21, Confluent repo, Avro + spring-kafka dependencies, avro-maven-plugin",
+            "producer/src/main/java/com/aerostream/AerostreamProducerApplication.java — @SpringBootApplication main class",
+            "producer/src/main/resources/application.yml — Kafka, simulator, management/actuator config",
+            "producer/src/main/resources/application-docker.yml — overrides bootstrap-servers and schema-registry URL for Docker network",
+            "producer/Dockerfile — multi-stage: maven:3.9-amazoncorretto-21 builder + amazoncorretto:21-alpine runtime",
+            "docker-compose.yml — producer service added with depends_on service_healthy for all 3 brokers + schema-registry",
+            ".env.example — PRODUCER_PORT=8090, SIMULATOR_EVENTS_PER_SECOND=10000"
+          ],
+          "files_created": [
+            "producer/pom.xml",
+            "producer/Dockerfile",
+            "producer/src/main/java/com/aerostream/AerostreamProducerApplication.java",
+            "producer/src/main/resources/application.yml",
+            "producer/src/main/resources/application-docker.yml",
+            "producer/.gitignore"
+          ],
+          "files_modified": [
+            "docker-compose.yml — added producer service with service_healthy depends_on",
+            ".env.example — added PRODUCER_PORT=8090, SIMULATOR_EVENTS_PER_SECOND=10000"
+          ],
+          "status": "completed",
+          "completed_at": "2026-04-19",
+          "notes": "Multi-stage Docker build with maven:3.9-amazoncorretto-21 builder and amazoncorretto:21-alpine runtime. Spring profile 'docker' activated in container via ENTRYPOINT -Dspring.profiles.active=docker."
+        },
+        "PROD-2": {
+          "title": "Avro Schema — TelemetryEvent Full Schema & Schema Registry Registration",
+          "priority": "Critical",
+          "estimate": "2 hours",
+          "status": "pending",
+          "description": "Define the canonical 26-field TelemetryEvent Avro schema. Register in Schema Registry under BACKWARD compatibility. Generate Java POJOs via Maven plugin.",
+          "schema_fields": [
+            "car_id (string)", "driver_id (string)", "session_id (string)", "timestamp_ms (long)",
+            "lap (int)", "sector (int)", "speed_kph (double)", "rpm (int)", "gear (int)",
+            "throttle_pct (double)", "brake_pct (double)", "drs_active (boolean)",
+            "tire_compound (enum: SOFT/MEDIUM/HARD/INTER/WET)",
+            "tire_temp_fl/fr/rl/rr (double x4)", "tire_wear_fl/fr/rl/rr (double x4)",
+            "fuel_load_kg (double)", "engine_temp_c (double)", "ers_deploy_pct (double)",
+            "g_force_lat (double)", "g_force_lon (double)"
+          ],
+          "deliverables": [
+            "producer/src/main/avro/TelemetryEvent.avsc — 26-field schema with namespace com.aerostream.avro",
+            "Generated: target/generated-sources/avro/com/aerostream/avro/TelemetryEvent.java + TireCompound.java",
+            "producer/src/main/java/com/aerostream/config/SchemaRegistryConfig.java — CachedSchemaRegistryClient bean",
+            "producer/src/test/java/com/aerostream/schema/SchemaRegistrationTest.java — schema field count + key fields assertions"
+          ],
+          "files_created": [
+            "producer/src/main/avro/TelemetryEvent.avsc",
+            "producer/src/main/java/com/aerostream/config/SchemaRegistryConfig.java",
+            "producer/src/test/java/com/aerostream/schema/SchemaRegistrationTest.java"
+          ],
+          "status": "completed",
+          "completed_at": "2026-04-19",
+          "notes": "avro-maven-plugin generates TelemetryEvent.java + TireCompound.java from .avsc during generate-sources phase. Generated sources go to target/generated-sources/avro — excluded from VCS via producer/.gitignore."
+        },
+        "PROD-3": {
+          "title": "Kafka Producer Config — Idempotence, Batching & Car_ID Partitioning",
+          "priority": "Critical",
+          "estimate": "2 hours",
+          "status": "pending",
+          "description": "Production-grade Kafka producer configuration: idempotent producer, LZ4 compression, custom TelemetryPartitioner by car_id.",
+          "deliverables": [
+            "producer/src/main/java/com/aerostream/config/KafkaProducerConfig.java — ProducerFactory<String,TelemetryEvent> + KafkaTemplate bean",
+            "producer/src/main/java/com/aerostream/kafka/TelemetryPartitioner.java — Math.abs(carId.hashCode()) % numPartitions",
+            "producer/src/test/java/com/aerostream/kafka/TelemetryPartitionerTest.java — same car_id always maps to same partition"
+          ],
+          "producer_config": {
+            "enable.idempotence": true,
+            "acks": "all",
+            "retries": "Integer.MAX_VALUE",
+            "max.in.flight.requests.per.connection": 5,
+            "batch.size": 65536,
+            "linger.ms": 5,
+            "compression.type": "lz4",
+            "buffer.memory": 33554432
+          },
+          "files_created": [
+            "producer/src/main/java/com/aerostream/config/KafkaProducerConfig.java",
+            "producer/src/main/java/com/aerostream/kafka/TelemetryPartitioner.java",
+            "producer/src/test/java/com/aerostream/kafka/TelemetryPartitionerTest.java"
+          ],
+          "status": "completed",
+          "completed_at": "2026-04-19",
+          "notes": "TelemetryPartitioner uses Math.abs(key.hashCode()) % numPartitions. String.hashCode() is deterministic across JVM restarts so car-to-partition mapping is stable."
+        },
+        "PROD-4": {
+          "title": "Telemetry Simulation Engine — 20 Cars, Realistic Physics, 10k+ Events/sec",
+          "priority": "High",
+          "estimate": "3 hours",
+          "status": "pending",
+          "description": "Physics-based simulation engine: 20 cars with independent state machines, speed curves, tire temp heat/cool model, fuel burn, lap progression. Configurable events/sec via SimulatorProperties.",
+          "deliverables": [
+            "producer/src/main/java/com/aerostream/model/CarState.java — @Data @Builder mutable physics state per car",
+            "producer/src/main/java/com/aerostream/simulation/PhysicsEngine.java — tick() advances all sensor values",
+            "producer/src/main/java/com/aerostream/simulation/TelemetryEventMapper.java — CarState → TelemetryEvent Avro",
+            "producer/src/main/java/com/aerostream/simulation/TelemetrySimulator.java — ScheduledExecutorService, 20 cars, start/stop/status",
+            "producer/src/main/java/com/aerostream/simulation/SimulatorProperties.java — @ConfigurationProperties(prefix=simulator)",
+            "producer/src/main/java/com/aerostream/simulation/SimulatorStatus.java — @Builder status DTO",
+            "producer/src/main/java/com/aerostream/simulation/SimulatorController.java — POST /api/simulator/start|stop, GET /api/simulator/status"
+          ],
+          "physics_model": {
+            "tire_temp": "Starts 80C, rises to 90-115C. Heat rate proportional to speed. Cool rate proportional to delta from 95C optimal.",
+            "tire_wear": "SOFT=1.4x, HARD=0.7x base wear rate. Increases with speed.",
+            "fuel": "~2kg/lap consumed. FUEL_BURN_PER_TICK=0.000028.",
+            "speed": "Max 335 kph. Braking zones at track positions 0.18-0.22, 0.43-0.47, 0.68-0.72, 0.83-0.87.",
+            "drs": "Active when speed > 280 kph and not in braking zone."
+          },
+          "files_created": [
+            "producer/src/main/java/com/aerostream/model/CarState.java",
+            "producer/src/main/java/com/aerostream/simulation/PhysicsEngine.java",
+            "producer/src/main/java/com/aerostream/simulation/TelemetryEventMapper.java",
+            "producer/src/main/java/com/aerostream/simulation/TelemetrySimulator.java",
+            "producer/src/main/java/com/aerostream/simulation/SimulatorProperties.java",
+            "producer/src/main/java/com/aerostream/simulation/SimulatorStatus.java",
+            "producer/src/main/java/com/aerostream/simulation/SimulatorController.java"
+          ],
+          "status": "completed",
+          "completed_at": "2026-04-19",
+          "notes": "DlqPublisher injected lazily into TelemetrySimulator via setDlqPublisher() to avoid circular Spring dependency. PhysicsEngine models 4 braking zones, compound-aware tire wear, fuel burn 0.000028 kg/tick."
+        },
+        "PROD-5": {
+          "title": "Dead Letter Queue — Error Handler, Headers & Poison Pill Testing",
+          "priority": "High",
+          "estimate": "2 hours",
+          "status": "pending",
+          "description": "Enterprise DLQ: non-retriable producer failures routed to dlq-telemetry with diagnostic headers. PoisonPillGenerator + TestController for proving DLQ acceptance criterion.",
+          "dlq_headers": [
+            "X-Error-Message", "X-Original-Topic", "X-Error-Timestamp", "X-Exception-Class", "X-Original-Car-Id"
+          ],
+          "deliverables": [
+            "producer/src/main/java/com/aerostream/kafka/DlqPublisher.java — separate byte[] KafkaTemplate, RETRIES=0, ACKS=1",
+            "producer/src/main/java/com/aerostream/testing/PoisonPillGenerator.java — generates invalid TelemetryEvent records",
+            "producer/src/main/java/com/aerostream/testing/TestController.java — POST /api/test/poison-pill?count=N @Profile(!production)"
+          ],
+          "files_created": [
+            "producer/src/main/java/com/aerostream/kafka/DlqPublisher.java",
+            "producer/src/main/java/com/aerostream/testing/PoisonPillGenerator.java",
+            "producer/src/main/java/com/aerostream/testing/TestController.java"
+          ],
+          "status": "completed",
+          "completed_at": "2026-04-19",
+          "notes": "DLQ KafkaTemplate uses ByteArraySerializer — no Avro, no Schema Registry, no retries. TestController @Profile(!production) ensures poison-pill endpoint never ships to production."
+        },
+        "PROD-6": {
+          "title": "Producer Metrics — Actuator, Micrometer & Prometheus Scrape Config",
+          "priority": "Medium",
+          "estimate": "1.5 hours",
+          "status": "pending",
+          "description": "Micrometer counters/gauges for events published, DLQ rate, active cars. Prometheus scrape job for producer service. Grafana dashboard with live events/sec panel.",
+          "metrics": [
+            "telemetry.events.published (counter, tag: topic=raw-telemetry)",
+            "telemetry.events.dlq (counter, tag: topic=dlq-telemetry)",
+            "telemetry.active.cars (gauge)"
+          ],
+          "deliverables": [
+            "MeterRegistry injected into TelemetrySimulator + DlqPublisher",
+            "infra/prometheus/prometheus.yml — aerostream-producer scrape job at :8090/actuator/prometheus",
+            "infra/grafana/dashboards/producer-dashboard.json — 7 panels including events/sec, DLQ rate, active cars, producer latency"
+          ],
+          "files_created": [
+            "infra/grafana/dashboards/producer-dashboard.json"
+          ],
+          "files_modified": [
+            "infra/prometheus/prometheus.yml — added aerostream-producer scrape job"
+          ],
+          "status": "completed",
+          "completed_at": "2026-04-19",
+          "notes": "Dashboard uid=aerostream-producer, 5s auto-refresh, 15m default time window. Prometheus reload required: curl -X POST http://localhost:9090/-/reload"
+        }
+      },
+      "definition_of_done": [
+        "curl localhost:8081/subjects returns [\"TelemetryEvent-value\"] after first producer run",
+        "curl localhost:8090/actuator/health returns {\"status\":\"UP\"}",
+        "POST /api/simulator/start → raw-telemetry receives messages keyed by CAR_XX",
+        "Kafka UI: CAR_01 messages all on same partition (TelemetryPartitioner working)",
+        "POST /api/test/poison-pill?count=5 → dlq-telemetry has 5 messages with X-Error-Message header",
+        "curl localhost:9090/api/v1/targets shows aerostream-producer target state=up",
+        "curl localhost:8090/actuator/prometheus returns telemetry_events_published_total increasing",
+        "Grafana producer dashboard shows live events/sec panel"
+      ],
+      "startup_sequence": [
+        "mvn clean package -f producer/pom.xml -DskipTests",
+        "docker compose build producer",
+        "docker compose up -d producer",
+        "curl http://localhost:8090/actuator/health",
+        "curl -X POST http://localhost:8090/api/simulator/start",
+        "curl http://localhost:8090/api/simulator/status"
+      ],
+      "completion_summary": "Delivered Spring Boot producer with TelemetryEvent Avro (Schema Registry), idempotent LZ4 producer + car-id partitioner, physics simulator (20 cars), DLQ path + poison-pill testing hooks, Micrometer metrics and Grafana producer dashboard + Prometheus scrape.",
+      "status": "completed",
+      "completed_at": "2026-04-19"
+    },
+    "phase_3": {
+      "name": "Stream Enrichment — Kafka Streams + Debezium CDC",
+      "status": "completed",
+      "estimate": "~12 hours",
+      "stack": {
+        "database": "PostgreSQL 16-alpine — WAL logical replication enabled",
+        "cdc": "Debezium PostgreSQL Connector 2.7.4.Final (Maven: debezium-connector-postgres) via Kafka Connect 7.6.1",
+        "stream_processing": "Spring Boot 3.2.5 + Kafka Streams 3.6 + kafka-streams-avro-serde 7.6.1",
+        "joins": "GlobalKTable leftJoin (circuit + driver) against KStream<String, TelemetryEvent>",
+        "transforms": "SMT chain: ExtractNewRecordState → RegexRouter → ExtractField$Key"
+      },
+      "key_decisions": {
+        "wal_level": "wal_level=logical required by Debezium pgoutput plugin. max_replication_slots=4 and max_wal_senders=4 set on postgres startup command.",
+        "debezium_smt": "Three-transform chain: unwrap (remove Debezium envelope), route (rename topic), extractKey (plain String PK). This gives clean String keys for GlobalKTable lookups without struct-key complexity.",
+        "global_ktable": "GlobalKTable instead of KTable: Global = all partitions replicated to every stream thread. No co-partitioning requirement. circuit-metadata (10 rows) and driver-profiles (20 rows) are tiny — full replication is free.",
+        "left_join": "leftJoin not join: events pass through even if reference data hasn't arrived yet. enriched=false when circuit/driver is null. No blocking or data loss at startup.",
+        "circuit_id_extraction": "session_id='RACE_2024_MONZA_R1' → split('_')[2] = 'MONZA'. Must match PostgreSQL circuits.circuit_id exactly.",
+        "exactly_once": "processing.guarantee=exactly_once_v2. Kafka Streams uses transactions internally. Prevents enriched-telemetry duplicates on processor restart.",
+        "plugin_mount": "Debezium JAR downloaded locally and volume-mounted — no custom Docker image build. Faster iteration, same result.",
+        "publication_per_connector": "Separate publication.name per Debezium connector (e.g. aerostream_circuits_pub) so filtered publications do not collide on dbz_publication.",
+        "route_regex": "RegexRouter targets only aerostream.public.circuits / aerostream.public.drivers so heartbeat records are not rewritten through ExtractField$Key.",
+        "heartbeat": "heartbeat.interval.ms=0 for both CDC connectors to avoid heartbeat records traversing the SMT chain (alternative: predicates).",
+        "deploy_connectors": "deploy-connectors.sh PUTs config on HTTP 409 so connector JSON changes apply without manual DELETE.",
+        "connector_password": "Committed connector JSON uses empty database.password; deploy injects POSTGRES_PASSWORD."
+      },
+      "issues": {
+        "ENRICH-1": {
+          "title": "PostgreSQL Setup — F1 2024 Seed Data, Schema & docker-compose Integration",
+          "priority": "Critical",
+          "estimate": "2 hours",
+          "status": "completed",
+          "deliverables": [
+            "postgres service in docker-compose.yml (postgres:16-alpine) with wal_level=logical, max_replication_slots=4, max_wal_senders=4",
+            "infra/postgres/init/01-schema.sql — circuits, teams, drivers, regulations tables",
+            "infra/postgres/init/02-seed-circuits.sql — 10 F1 2024 circuits",
+            "infra/postgres/init/03-seed-teams.sql — 10 F1 2024 teams",
+            "infra/postgres/init/04-seed-drivers.sql — 20 drivers DRV_01..DRV_20",
+            "infra/postgres/init/05-regulations.sql — F1_2024 row",
+            "infra/postgres/init/06-permissions.sql — ALTER USER aerostream REPLICATION",
+            "create-topics.sh updated: driver-profiles (5 partitions, RF=3, compact)"
+          ],
+          "files_created": [
+            "infra/postgres/init/01-schema.sql",
+            "infra/postgres/init/02-seed-circuits.sql",
+            "infra/postgres/init/03-seed-teams.sql",
+            "infra/postgres/init/04-seed-drivers.sql",
+            "infra/postgres/init/05-regulations.sql",
+            "infra/postgres/init/06-permissions.sql"
+          ],
+          "files_modified": [
+            "docker-compose.yml — added postgres service with wal_level=logical, postgres-data volume",
+            "infra/scripts/create-topics.sh — added driver-profiles, connect-configs, connect-offsets, connect-status",
+            ".env.example — added POSTGRES_PORT, POSTGRES_PASSWORD, KAFKA_CONNECT_PORT, STREAM_PROCESSOR_PORT"
+          ],
+          "completed_at": "2026-04-26",
+          "notes": "postgres-data volume persists data across restarts. Init scripts in /docker-entrypoint-initdb.d run in filename order (01..06) only on first container start."
+        },
+        "ENRICH-2": {
+          "title": "Kafka Connect Cluster — Volume-Mount Plugin Setup & docker-compose Integration",
+          "priority": "Critical",
+          "estimate": "2 hours",
+          "status": "completed",
+          "deliverables": [
+            "infra/scripts/download-connect-plugins.sh — downloads Debezium plugin tarball (io.debezium:debezium-connector-postgres:2.7.4.Final)",
+            "kafka-connect service in docker-compose.yml (confluentinc/cp-kafka-connect:7.6.1)",
+            "AvroConverter for key/value pointing at Schema Registry",
+            "connect-configs (1p compact), connect-offsets (25p compact), connect-status (5p compact) topics",
+            "kafka-ui updated with KAFKA_CLUSTERS_0_KAFKACONNECT_0 env vars",
+            "prometheus.yml updated with kafka-connect and stream-processor scrape jobs"
+          ],
+          "files_created": [
+            "infra/scripts/download-connect-plugins.sh"
+          ],
+          "files_modified": [
+            "docker-compose.yml — added kafka-connect service, updated kafka-ui with Connect address",
+            "infra/prometheus/prometheus.yml — added kafka-connect and stream-processor scrape jobs"
+          ],
+          "completed_at": "2026-04-26",
+          "notes": "Run bash infra/scripts/download-connect-plugins.sh BEFORE docker compose up kafka-connect. Plugin idempotent — skips if directory already exists."
+        },
+        "ENRICH-3": {
+          "title": "Debezium CDC Connectors — circuits & driver-profiles with SMT chain",
+          "priority": "Critical",
+          "estimate": "2 hours",
+          "status": "completed",
+          "deliverables": [
+            "infra/kafka-connect/connectors/aerostream-circuits-connector.json — circuits → circuit-metadata",
+            "infra/kafka-connect/connectors/aerostream-drivers-connector.json — drivers → driver-profiles",
+            "infra/scripts/deploy-connectors.sh — idempotent REST API deployer"
+          ],
+          "smt_chain": "unwrap (ExtractNewRecordState) → route (RegexRouter) → extractKey (ExtractField$Key)",
+          "files_created": [
+            "infra/kafka-connect/connectors/aerostream-circuits-connector.json",
+            "infra/kafka-connect/connectors/aerostream-drivers-connector.json",
+            "infra/scripts/deploy-connectors.sh"
+          ],
+          "completed_at": "2026-04-26",
+          "notes": "deploy-connectors.sh returns 201=created, 409=exists. Both are success. Run AFTER kafka-connect is healthy."
+        },
+        "ENRICH-4": {
+          "title": "stream-processor Module Bootstrap + EnrichedTelemetryEvent Avro Schema",
+          "priority": "High",
+          "estimate": "2 hours",
+          "status": "completed",
+          "deliverables": [
+            "stream-processor/pom.xml — Spring Boot 3.2.5, kafka-streams, kafka-streams-avro-serde",
+            "stream-processor/src/main/avro/TelemetryEvent.avsc (copied from producer)",
+            "stream-processor/src/main/avro/EnrichedTelemetryEvent.avsc — 26 original + 12 nullable enrichment fields",
+            "StreamProcessorApplication.java — @SpringBootApplication @EnableKafkaStreams",
+            "application.yml + application-docker.yml",
+            "Dockerfile (same multi-stage pattern as producer)",
+            "stream-processor service added to docker-compose.yml"
+          ],
+          "files_created": [
+            "stream-processor/pom.xml",
+            "stream-processor/Dockerfile",
+            "stream-processor/src/main/avro/TelemetryEvent.avsc",
+            "stream-processor/src/main/avro/EnrichedTelemetryEvent.avsc",
+            "stream-processor/src/main/java/com/aerostream/StreamProcessorApplication.java",
+            "stream-processor/src/main/resources/application.yml",
+            "stream-processor/src/main/resources/application-docker.yml"
+          ],
+          "files_modified": [
+            "docker-compose.yml — added stream-processor service"
+          ],
+          "completed_at": "2026-04-26",
+          "notes": "EnrichedTelemetryEvent has 38 fields total: 26 original + 12 enrichment (10 nullable, 2 with defaults). avro-maven-plugin import of TelemetryEvent.avsc resolves TireCompound enum dependency."
+        },
+        "ENRICH-5": {
+          "title": "Kafka Streams Enrichment Topology — GlobalKTable leftJoin (circuit + driver)",
+          "priority": "Critical",
+          "estimate": "3 hours",
+          "status": "completed",
+          "deliverables": [
+            "config/KafkaStreamsConfig.java — KafkaStreamsConfiguration bean with exactly_once_v2, SpecificAvroSerde and GenericAvroSerde beans",
+            "topology/EnrichmentTopology.java — rawStream.leftJoin(circuitGlobalKTable).leftJoin(driverGlobalKTable).to(enriched-telemetry)",
+            "enrichment/EnrichmentMapper.java — withCircuit() and withDriver() null-safe pure-static mappers",
+            "test/TopologyTest.java — 3 tests using TopologyTestDriver (no Kafka cluster)"
+          ],
+          "files_created": [
+            "stream-processor/src/main/java/com/aerostream/config/KafkaStreamsConfig.java",
+            "stream-processor/src/main/java/com/aerostream/topology/EnrichmentTopology.java",
+            "stream-processor/src/main/java/com/aerostream/enrichment/EnrichmentMapper.java",
+            "stream-processor/src/test/java/com/aerostream/TopologyTest.java"
+          ],
+          "completed_at": "2026-04-26",
+          "notes": "extractCircuitId('RACE_2024_MONZA_R1') returns 'MONZA' via split('_')[2]. GlobalKTable replicated to all stream threads — no co-partitioning needed. leftJoin ensures events never blocked even on cold start."
+        },
+        "ENRICH-6": {
+          "title": "End-to-End Phase 3 Validation",
+          "priority": "High",
+          "estimate": "1 hour",
+          "status": "completed",
+          "deliverables": [
+            "validate-cluster.sh updated with 6 Phase 3 checks: Connect healthy, both connectors RUNNING, circuit-metadata and driver-profiles topics populated, stream-processor health UP"
+          ],
+          "files_modified": [
+            "infra/scripts/validate-cluster.sh — added 6 Phase 3 checks"
+          ],
+          "completed_at": "2026-04-26",
+          "notes": "validate-cluster.sh now exits 0 only when all Phase 1 + 2 + 3 checks pass."
+        }
+      },
+      "definition_of_done": [
+        "psql -c 'SELECT COUNT(*) FROM drivers' returns 20",
+        "SHOW wal_level returns logical",
+        "curl localhost:8083/ returns Kafka Connect info JSON",
+        "curl localhost:8083/connector-plugins contains PostgresConnector",
+        "both connectors show state: RUNNING",
+        "circuit-metadata topic has 10 messages with String keys",
+        "driver-profiles topic has 20 messages with String keys",
+        "enriched-telemetry messages have circuit_name AND driver_full_name not null",
+        "bash infra/scripts/validate-cluster.sh exits 0 with ALL CHECKS PASSED"
+      ],
+      "startup_sequence": [
+        "docker compose up -d postgres",
+        "bash infra/scripts/create-topics.sh (adds driver-profiles, connect-* topics)",
+        "bash infra/scripts/download-connect-plugins.sh",
+        "docker compose up -d kafka-connect",
+        "bash infra/scripts/deploy-connectors.sh",
+        "mvn clean package -f stream-processor/pom.xml -DskipTests",
+        "docker compose build stream-processor",
+        "docker compose up -d stream-processor",
+        "bash infra/scripts/validate-cluster.sh"
+      ],
+      "completion_summary": "Delivered Postgres reference store + Debezium CDC into circuit-metadata and driver-profiles; Kafka Connect deploy automation; stream-processor with GlobalKTable left-join enrichment to EnrichedTelemetryEvent; validate-cluster validates connector tasks (not only REST RUNNING string) and topic offsets.",
+      "completed_at": "2026-04-26"
+    },
+    "phase_4": {
+      "name": "ksqlDB Analytics — windowed aggregates",
+      "status": "completed",
+      "estimate": "~8 hours",
+      "stack": {
+        "ksqldb": "confluentinc/cp-ksqldb-server:7.6.1",
+        "processing_guarantee": "exactly_once_v2 (KSQL streams)",
+        "sink_topic": "stream-aggregates",
+        "sink_format": "JSON (aggregate rows: pace + tire metrics per car_id per window)"
+      },
+      "key_decisions": {
+        "windowing": "HOPPING windows SIZE 30 SECONDS, ADVANCE BY 10 SECONDS — overlapping windows suitable for operational dashboards (approximates sliding analysis).",
+        "filter": "WHERE enriched = true restricts aggregates to fully enriched telemetry rows.",
+        "topic_ownership": "stream-aggregates is created by ksqlDB CTAS (not create-topics.sh) so PARTITIONS=10 and RF=3 match the sink WITH clause.",
+        "schema_prerequisite": "ENRICHED_EVENTS stream uses Schema Registry value schema for enriched-telemetry; deploy deploy-ksql-queries.sh after at least one Avro record exists or SR has the subject.",
+        "idempotency": "reset-ksql-queries.sh terminates persistent queries then DROP STREAM/TABLE; deploy uses CREATE STREAM IF NOT EXISTS for the source."
+      },
+      "issues": {
+        "AGGR-1": {
+          "title": "ksqlDB Server — Docker Compose service + health",
+          "priority": "Critical",
+          "estimate": "2 hours",
+          "status": "completed",
+          "deliverables": [
+            "docker-compose.yml: ksqldb-server (cp-ksqldb-server:7.6.1), port KSQL_PORT default 8088",
+            "KSQL_BOOTSTRAP_SERVERS to all 3 brokers, KSQL_KSQL_SCHEMA_REGISTRY_URL, replication-factor 3 for internal topics",
+            "Healthcheck: GET /info",
+            ".env.example: KSQL_PORT=8088"
+          ],
+          "files_modified": ["docker-compose.yml", ".env.example"],
+          "completed_at": "2026-04-26"
+        },
+        "AGGR-2": {
+          "title": "Source stream ENRICHED_EVENTS over enriched-telemetry (Avro)",
+          "priority": "Critical",
+          "estimate": "2 hours",
+          "status": "completed",
+          "deliverables": [
+            "infra/ksqldb/01_enriched_source.sql — CREATE STREAM IF NOT EXISTS ENRICHED_EVENTS WITH (KAFKA_TOPIC, KEY_FORMAT=KAFKA, VALUE_FORMAT=AVRO, TIMESTAMP=timestamp_ms)"
+          ],
+          "files_created": ["infra/ksqldb/01_enriched_source.sql"],
+          "completed_at": "2026-04-26"
+        },
+        "AGGR-3": {
+          "title": "CTAS AGGREGATE_METRICS — hopping windows → stream-aggregates",
+          "priority": "Critical",
+          "estimate": "3 hours",
+          "status": "completed",
+          "deliverables": [
+            "infra/ksqldb/02_aggregate_metrics.sql — AVG/MAX speed, average tire temp & wear, COUNT; GROUP BY car_id; WINDOW HOPPING (30s / 10s advance)",
+            "CREATE TABLE AGGREGATE_METRICS WITH (KAFKA_TOPIC='stream-aggregates', VALUE_FORMAT='JSON', PARTITIONS=10, REPLICAS=3)"
+          ],
+          "files_created": ["infra/ksqldb/02_aggregate_metrics.sql"],
+          "completed_at": "2026-04-26"
+        },
+        "AGGR-4": {
+          "title": "Automation scripts — deploy + reset ksql queries",
+          "priority": "High",
+          "estimate": "1 hour",
+          "status": "completed",
+          "deliverables": [
+            "infra/scripts/deploy-ksql-queries.sh — POST /ksql for each .sql file, streamsProperties auto.offset.reset=earliest",
+            "infra/scripts/reset-ksql-queries.sh — SHOW QUERIES, TERMINATE, DROP TABLE/STREAM"
+          ],
+          "files_created": ["infra/scripts/deploy-ksql-queries.sh", "infra/scripts/reset-ksql-queries.sh"],
+          "completed_at": "2026-04-26"
+        },
+        "AGGR-5": {
+          "title": "Topic provisioning + validation updates",
+          "priority": "Medium",
+          "estimate": "1 hour",
+          "status": "completed",
+          "deliverables": [
+            "create-topics.sh: removed stream-aggregates (owned by Phase 4 ksqlDB)",
+            "validate-cluster.sh: Phase 4 block — ksqlDB /info healthy",
+            "README.md: phases table, ksql endpoint, deploy-ksql-queries.sh in quick start"
+          ],
+          "files_modified": ["infra/scripts/create-topics.sh", "infra/scripts/validate-cluster.sh", "README.md"],
+          "completed_at": "2026-04-26"
+        }
+      },
+      "definition_of_done": [
+        "docker compose ps shows ksqldb-server healthy",
+        "curl localhost:8088/info returns JSON",
+        "bash infra/scripts/deploy-ksql-queries.sh completes without error (after enriched-telemetry schema exists)",
+        "kafka-topics --describe --topic stream-aggregates shows PARTITIONS=10, RF=3 after CTAS",
+        "SHOW QUERIES lists persistent CSAS/CTAS for AGGREGATE_METRICS",
+        "bash infra/scripts/validate-cluster.sh includes Phase 4 ksqlDB check and exits 0"
+      ],
+      "startup_sequence": [
+        "docker compose up -d ksqldb-server",
+        "Start producer + stream-processor so enriched-telemetry registers EnrichedTelemetryEvent in Schema Registry",
+        "bash infra/scripts/deploy-ksql-queries.sh",
+        "bash infra/scripts/validate-cluster.sh"
+      ],
+      "completed_at": "2026-04-26"
+    },
+    "phase_5": {
+      "name": "Analytics & Observability — ML Consumer",
+      "status": "pending",
+      "issues": {}
+    }
+  },
+  "decisions": {
+    "kafka_mode": "KRaft combined mode (broker + controller on same node). No ZooKeeper. Requires CLUSTER_ID generated with kafka-storage random-uuid before first start.",
+    "schema_compatibility": "BACKWARD globally. New schemas can only add optional fields with defaults. Protects downstream consumers from breaking changes.",
+    "topic_partitions": "raw-telemetry and enriched-telemetry = 20 partitions (matches 20 simulated cars). stream-aggregates = 10. pit-predictions = 5. DLQ/metadata = 3.",
+    "replication_factor": "RF=3 on all topics. min.insync.replicas=2 on high-throughput topics. Cluster can tolerate 1 broker failure.",
+    "docker_network": "Single bridge network aerostream-network. All containers communicate by service name.",
+    "observability": "JMX Prometheus Java Agent (0.19.0) attached to each broker via KAFKA_OPTS. Prometheus scrapes at 15s. Grafana with file-provisioned datasource and dashboard provider.",
+    "auto_create_topics": "KAFKA_AUTO_CREATE_TOPICS_ENABLE=false — operational topics are provisioned via create-topics.sh where durable configs matter; Phase 4 sink topic stream-aggregates is created by ksqlDB CTAS (matching PARTITIONS/RF); ksqlDB also creates its own internal topics."
+  },
+  "build_log": [
+    {
+      "date": "2026-04-20",
+      "phase": "phase_1",
+      "summary": "Phase 1 fully implemented. 7 files created + docker-compose.yml built incrementally across INFRA-1 through INFRA-6. All 5 scripts are executable. docker compose config validates without errors."
+    },
+    {
+      "date": "2026-04-19",
+      "phase": "phase_2",
+      "summary": "Phase 2 fully implemented. 18 Java source files created across producer/src/main and test. pom.xml with avro-maven-plugin, TelemetryEvent.avsc (26 fields), idempotent KafkaProducerConfig, TelemetryPartitioner, PhysicsEngine (4 braking zones, compound-aware tire model), TelemetrySimulator (ScheduledExecutorService, 20 cars), DlqPublisher (separate byte[] KafkaTemplate), PoisonPillGenerator, SimulatorController, TestController. Grafana producer-dashboard.json (7 panels). Prometheus scrape job added for producer. docker-compose.yml updated with producer service."
+    },
+    {
+      "date": "2026-04-26",
+      "phase": "phase_3",
+      "summary": "Phase 3 fully implemented. PostgreSQL 16 with WAL logical replication (wal_level=logical) + 6 init SQL files (schema, 10 circuits, 10 teams, 20 drivers DRV_01..DRV_20, regulations, replication permissions). Kafka Connect service (cp-kafka-connect:7.6.1) with Debezium plugin volume-mounted. Two CDC connectors (circuits→circuit-metadata, drivers→driver-profiles) using 3-SMT chain plus publication.name split, table-specific RegexRouter, heartbeat disabled. stream-processor Spring Boot module: EnrichedTelemetryEvent.avsc (38 fields), KafkaStreamsConfig (exactly_once_v2), EnrichmentTopology (GlobalKTable leftJoin x2), TopologyTest. validate-cluster.sh updated with connector task checks and Phase 3 topic offsets."
+    },
+    {
+      "date": "2026-04-26",
+      "phase": "phase_4",
+      "summary": "Phase 4 implemented: ksqldb-server in docker-compose (REST :8088), infra/ksqldb SQL (ENRICHED_EVENTS Avro stream + AGGREGATE_METRICS hopping-window CTAS → stream-aggregates JSON), deploy-ksql-queries.sh and reset-ksql-queries.sh, create-topics no longer pre-creates stream-aggregates, validate-cluster Phase 4 check, README updates."
+    }
+  ]
+}
