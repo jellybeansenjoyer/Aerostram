@@ -62,4 +62,3 @@ infra/kafka-connect/plugins/
 
 # ── Jupyter ───────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
-context.json

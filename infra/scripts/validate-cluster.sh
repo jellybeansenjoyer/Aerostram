@@ -85,7 +85,7 @@ sys.exit(0)
 
 echo ""
 echo "======================================================"
-echo "  AeroStream — Phase 1 Validation Suite"
+echo "  AeroStream — Cluster Validation (Phases 1–4)"
 echo "======================================================"
 echo ""
 
@@ -161,6 +161,13 @@ check "driver-profiles topic has data" \
 check "stream-processor health UP" \
   "stream_processor_health_up"
 
+# ── Phase 4: ksqlDB ───────────────────────────────────────────────────────────
+echo ""
+echo "[ Phase 4 — ksqlDB ]"
+
+check "ksqlDB REST API healthy" \
+  "curl -sf http://localhost:${KSQL_PORT:-8088}/info"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "======================================================"
@@ -168,7 +175,7 @@ printf "  Results: %d passed, %d failed\n" $PASS $FAIL
 echo "======================================================"
 
 if [ $FAIL -eq 0 ]; then
-  echo "  ALL CHECKS PASSED — Phase 3 complete. Proceed to Phase 4."
+  echo "  ALL CHECKS PASSED — stack healthy through Phase 4 (ksqlDB)."
   echo ""
   exit 0
 else
