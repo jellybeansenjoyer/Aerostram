@@ -64,6 +64,18 @@ stream_processor_health_up() {
   echo "$body" | python3 -c "import json,sys; r=json.load(sys.stdin); sys.exit(0 if r.get('status')=='UP' else 1)" 2>/dev/null
 }
 
+ml_consumer_health_up() {
+  local port="${ML_CONSUMER_PORT:-8099}"
+  curl -sf --max-time 10 "http://127.0.0.1:${port}/health" &>/dev/null || \
+    curl -sf --max-time 10 "http://localhost:${port}/health" &>/dev/null
+}
+
+ml_consumer_ready_up() {
+  local port="${ML_CONSUMER_PORT:-8099}"
+  curl -sf --max-time 10 "http://127.0.0.1:${port}/ready" &>/dev/null || \
+    curl -sf --max-time 10 "http://localhost:${port}/ready" &>/dev/null
+}
+
 # Connector-level RUNNING is not enough: tasks can be FAILED while the REST body still contains "RUNNING".
 connect_connector_and_tasks_running() {
   local name="$1"
@@ -85,7 +97,7 @@ sys.exit(0)
 
 echo ""
 echo "======================================================"
-echo "  AeroStream — Cluster Validation (Phases 1–4)"
+echo "  AeroStream — Cluster Validation (Phases 1–5)"
 echo "======================================================"
 echo ""
 
@@ -168,6 +180,22 @@ echo "[ Phase 4 — ksqlDB ]"
 check "ksqlDB REST API healthy" \
   "curl -sf http://localhost:${KSQL_PORT:-8088}/info"
 
+# ── Phase 5: ML Consumer ─────────────────────────────────────────────────────
+echo ""
+echo "[ Phase 5 — ML Consumer ]"
+
+check "ML consumer HTTP /health" \
+  "ml_consumer_health_up"
+
+check "ML consumer Kafka assignment /ready" \
+  "ml_consumer_ready_up"
+
+check "pit-predictions has 5 partitions" \
+  "docker exec -e KAFKA_OPTS='' kafka-1 kafka-topics --bootstrap-server kafka-1:9092 --describe --topic pit-predictions | grep -q 'PartitionCount: 5'"
+
+check "pit-predictions topic has data" \
+  "topic_has_records pit-predictions"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "======================================================"
@@ -175,7 +203,7 @@ printf "  Results: %d passed, %d failed\n" $PASS $FAIL
 echo "======================================================"
 
 if [ $FAIL -eq 0 ]; then
-  echo "  ALL CHECKS PASSED — stack healthy through Phase 4 (ksqlDB)."
+  echo "  ALL CHECKS PASSED — stack healthy through Phase 5 (ML consumer)."
   echo ""
   exit 0
 else

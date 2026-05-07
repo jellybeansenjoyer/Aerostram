@@ -31,7 +31,7 @@ Real-time Formula 1 telemetry processing platform built on Apache Kafka (KRaft),
 | 2 | Telemetry Simulator (Spring Boot producer, Avro schema) | Done |
 | 3 | Stream Enrichment (Kafka Streams, Debezium CDC, PostgreSQL) | Done |
 | 4 | ksqlDB Analytics (CSAS / CTAS, hopping-window aggregates → `stream-aggregates`) | Done |
-| 5 | ML Inference Consumer (Python, RandomForest, pit-stop predictions) | Pending |
+| 5 | ML Inference Consumer (Python, RandomForest, pit-stop predictions) | Done |
 
 ## Quick Start
 
@@ -51,12 +51,13 @@ bash infra/scripts/create-topics.sh
 # 5. Set Schema Registry compatibility
 bash infra/scripts/configure-schema-registry.sh
 
-# 6. Validate cluster (Phases 1–4 health checks)
-bash infra/scripts/validate-cluster.sh
-
-# 7. Phase 4 — deploy ksqlDB queries (after producer + stream-processor have run once so
+# 6. Phase 4 — deploy ksqlDB queries (after producer + stream-processor have run once so
 #    enriched-telemetry value schema exists in Schema Registry)
 bash infra/scripts/deploy-ksql-queries.sh
+
+# 7. Validate cluster (Phases 1–5 health checks). Ensure producer + stream-processor are
+#    running so CDC topics, enriched-telemetry, and pit-predictions contain data.
+bash infra/scripts/validate-cluster.sh
 ```
 
 ## Service Endpoints (default)
@@ -72,6 +73,7 @@ bash infra/scripts/deploy-ksql-queries.sh
 | Grafana | http://localhost:3000 (admin/admin) |
 | PostgreSQL | localhost:5432 |
 | ksqlDB | http://localhost:8088 |
+| ML consumer (Phase 5) | http://localhost:8099/health |
 
 ## Kafka Topics
 
@@ -89,4 +91,4 @@ bash infra/scripts/deploy-ksql-queries.sh
 
 See [`context.json`](./context.json) for the current build status and documentation of each completed issue.
 
-**Phase guides:** [Phase 1](./docs/phase-1-infrastructure.md) · [Phase 2](./docs/phase-2-telemetry-producer.md) · [Phase 3](./docs/phase-3-stream-enrichment.md) · [Phase 4](./docs/phase-4-ksqldb-analytics.md)
+**Phase guides:** [Phase 1](./docs/phase-1-infrastructure.md) · [Phase 2](./docs/phase-2-telemetry-producer.md) · [Phase 3](./docs/phase-3-stream-enrichment.md) · [Phase 4](./docs/phase-4-ksqldb-analytics.md) · [Phase 5](./docs/phase-5-ml-consumer.md)

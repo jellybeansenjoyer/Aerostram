@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "PitPrediction",
+  "namespace": "com.aerostream.avro",
+  "doc": "RandomForest pit-stop urgency inference from enriched telemetry",
+  "fields": [
+    {"name": "car_id", "type": "string"},
+    {"name": "timestamp_ms", "type": "long"},
+    {"name": "pit_probability", "type": "double"},
+    {"name": "recommend_pit", "type": "boolean"},
+    {"name": "model_version", "type": "string"}
+  ]
+}

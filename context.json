@@ -760,8 +760,112 @@
     },
     "phase_5": {
       "name": "Analytics & Observability — ML Consumer",
-      "status": "pending",
-      "issues": {}
+      "status": "completed",
+      "estimate": "~8 hours",
+      "stack": {
+        "runtime": "Python 3.11 + FastAPI + Uvicorn",
+        "kafka_client": "confluent-kafka-python 2.5.x with Schema Registry AvroSerializer/AvroDeserializer",
+        "ml": "scikit-learn RandomForestClassifier (synthetic training at image build → models/pit_rf.pkl)",
+        "input_topic": "enriched-telemetry (EnrichedTelemetryEvent Avro)",
+        "output_topic": "pit-predictions (PitPrediction Avro, 5 partitions)"
+      },
+      "issues": {
+        "ML-1": {
+          "title": "PitPrediction Avro schema",
+          "priority": "Critical",
+          "estimate": "1 hour",
+          "status": "completed",
+          "deliverables": [
+            "ml-consumer/schemas/PitPrediction.avsc — com.aerostream.avro.PitPrediction (car_id, timestamp_ms, pit_probability, recommend_pit, model_version)",
+            "Runtime registration via AvroSerializer against Schema Registry on produce"
+          ],
+          "files_created": ["ml-consumer/schemas/PitPrediction.avsc"],
+          "completed_at": "2026-05-07"
+        },
+        "ML-2": {
+          "title": "Training artifact — RandomForest pit model",
+          "priority": "Critical",
+          "estimate": "2 hours",
+          "status": "completed",
+          "deliverables": [
+            "ml-consumer/train_model.py — synthetic 6-feature dataset aligned with inference normalization",
+            "Docker build RUN python train_model.py → models/pit_rf.pkl (joblib)"
+          ],
+          "files_created": ["ml-consumer/train_model.py", "ml-consumer/models/.gitkeep"],
+          "completed_at": "2026-05-07"
+        },
+        "ML-3": {
+          "title": "Inference pipeline — consume enriched-telemetry, produce pit-predictions",
+          "priority": "Critical",
+          "estimate": "3 hours",
+          "status": "completed",
+          "deliverables": [
+            "app/kafka_worker.py — Consumer + Producer, Avro deserialize EnrichedTelemetryEvent, predict_proba, Avro serialize PitPrediction",
+            "app/predictor.py — feature vector from tire wear/temps, fuel, speed, ERS, lap",
+            "Consumer group aerostream-ml-consumer; optional CONSUMER_SLOWDOWN_MS for local throttling"
+          ],
+          "files_created": ["ml-consumer/app/kafka_worker.py", "ml-consumer/app/predictor.py", "ml-consumer/app/config.py"],
+          "completed_at": "2026-05-07"
+        },
+        "ML-4": {
+          "title": "Operations API — health, readiness, Prometheus metrics",
+          "priority": "High",
+          "estimate": "1 hour",
+          "status": "completed",
+          "deliverables": [
+            "GET /health — process up",
+            "GET /ready — Kafka partition assignment acquired",
+            "GET /metrics — prometheus_client counters (consumed, emitted, errors)"
+          ],
+          "files_created": ["ml-consumer/app/main.py"],
+          "completed_at": "2026-05-07"
+        },
+        "ML-5": {
+          "title": "Container + Compose + observability scrape",
+          "priority": "High",
+          "estimate": "1 hour",
+          "status": "completed",
+          "deliverables": [
+            "ml-consumer/Dockerfile (curl for healthcheck), requirements.txt (confluent-kafka, requests, fastavro, sklearn stack)",
+            "docker-compose.yml: aerostream-ml-consumer :8099, depends_on brokers + schema-registry",
+            "infra/prometheus/prometheus.yml job aerostream-ml-consumer:8099/metrics",
+            ".env.example ML_CONSUMER_PORT, PIT_THRESHOLD, CONSUMER_SLOWDOWN_MS"
+          ],
+          "files_created": ["ml-consumer/Dockerfile", "ml-consumer/requirements.txt", "ml-consumer/.dockerignore"],
+          "files_modified": ["docker-compose.yml", "infra/prometheus/prometheus.yml", ".env.example"],
+          "completed_at": "2026-05-07"
+        },
+        "ML-6": {
+          "title": "Validation suite — Phase 5 checks",
+          "priority": "Medium",
+          "estimate": "30 minutes",
+          "status": "completed",
+          "deliverables": [
+            "validate-cluster.sh: ML /health, /ready, pit-predictions PartitionCount 5, topic_has_records pit-predictions",
+            "README phases table + quick-start references Phases 1–5",
+            "docs/phase-5-ml-consumer.md — Phase 5 narrative (primer + walkthrough), aligned with phases 1–4 docs"
+          ],
+          "files_created": ["docs/phase-5-ml-consumer.md"],
+          "files_modified": ["infra/scripts/validate-cluster.sh", "README.md"],
+          "completed_at": "2026-05-07"
+        }
+      },
+      "definition_of_done": [
+        "docker compose up builds ml-consumer image; container reports healthy on /health",
+        "curl localhost:8099/ready returns 200 after partition assignment",
+        "Producer + stream-processor running so enriched-telemetry has traffic → pit-predictions receives Avro records",
+        "kafka-topics --describe --topic pit-predictions shows PARTITIONS=5, RF=3",
+        "bash infra/scripts/validate-cluster.sh exits 0 (includes Phase 5) when full pipeline is running",
+        "Prometheus targets page lists aerostream-ml-consumer job UP"
+      ],
+      "startup_sequence": [
+        "docker compose up -d (includes ml-consumer after brokers + schema-registry healthy)",
+        "bash infra/scripts/create-topics.sh",
+        "Start producer + stream-processor + deploy ksqlDB queries as needed",
+        "bash infra/scripts/validate-cluster.sh"
+      ],
+      "completion_summary": "Python ML consumer reads EnrichedTelemetryEvent from enriched-telemetry, runs sklearn RandomForest pit probability, emits PitPrediction to pit-predictions with SR-backed Avro; FastAPI health/ready/metrics; Prometheus scrape; validate-cluster Phase 5 gates.",
+      "completed_at": "2026-05-07"
     }
   },
   "decisions": {
@@ -793,6 +897,11 @@
       "date": "2026-04-26",
       "phase": "phase_4",
       "summary": "Phase 4 implemented: ksqldb-server in docker-compose (REST :8088), infra/ksqldb SQL (ENRICHED_EVENTS Avro stream + AGGREGATE_METRICS hopping-window CTAS → stream-aggregates JSON), deploy-ksql-queries.sh and reset-ksql-queries.sh, create-topics no longer pre-creates stream-aggregates, validate-cluster Phase 4 check, README updates."
+    },
+    {
+      "date": "2026-05-07",
+      "phase": "phase_5",
+      "summary": "Phase 5 implemented: ml-consumer Python service (FastAPI :8099, RandomForest pit inference, Avro consume/produce), PitPrediction.avsc, train_model.py + Docker build artifact, docker-compose + Prometheus scrape, validate-cluster Phase 5 (health, ready, pit-predictions partitions + records), README phase Done."
     }
   ]
 }
