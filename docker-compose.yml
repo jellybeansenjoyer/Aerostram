@@ -330,6 +330,7 @@ services:
       start_period: 60s
     networks:
       - aerostream-network
+    restart: unless-stopped
 
   # ── Phase 3: Stream Processor ────────────────────────────────────────────────
   stream-processor:
@@ -352,6 +353,82 @@ services:
         condition: service_healthy
       kafka-connect:
         condition: service_healthy
+    networks:
+      - aerostream-network
+    restart: unless-stopped
+
+  # ── Phase 4: ksqlDB — windowed aggregates → stream-aggregates ───────────────
+  ksqldb-server:
+    image: confluentinc/cp-ksqldb-server:7.6.1
+    hostname: ksqldb-server
+    container_name: ksqldb-server
+    ports:
+      - "${KSQL_PORT:-8088}:8088"
+    environment:
+      KSQL_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      KSQL_HOST_NAME: ksqldb-server
+      KSQL_LISTENERS: http://0.0.0.0:8088
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KSQL_KSQL_SERVICE_ID: aerostream_
+      KSQL_KSQL_STREAMS_PROCESSING_GUARANTEE: exactly_once_v2
+      KSQL_KSQL_STREAMS_REPLICATION_FACTOR: 3
+      KSQL_KSQL_STREAMS_NUM_STANDBY_REPLICAS: 1
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_REPLICATION_FACTOR: 3
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
+      KSQL_KSQL_TOPIC_REPLICAS: 3
+      KSQL_KSQL_INTERNAL_TOPIC_REPLICAS: 3
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8088/info >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 45s
+    networks:
+      - aerostream-network
+    restart: unless-stopped
+
+  # ── Phase 5: ML inference consumer — enriched-telemetry → pit-predictions ───
+  ml-consumer:
+    build:
+      context: ./ml-consumer
+      dockerfile: Dockerfile
+    container_name: aerostream-ml-consumer
+    ports:
+      - "${ML_CONSUMER_PORT:-8099}:8099"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      INPUT_TOPIC: enriched-telemetry
+      OUTPUT_TOPIC: pit-predictions
+      CONSUMER_GROUP: aerostream-ml-consumer
+      PIT_THRESHOLD: "${PIT_THRESHOLD:-0.65}"
+      CONSUMER_SLOWDOWN_MS: "${CONSUMER_SLOWDOWN_MS:-0}"
+      MODEL_PATH: /app/models/pit_rf.pkl
+      MODEL_VERSION: rf-1.0.0
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8099/health >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 40s
     networks:
       - aerostream-network
     restart: unless-stopped

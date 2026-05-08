@@ -6,21 +6,20 @@ Real-time Formula 1 telemetry processing platform built on Apache Kafka (KRaft),
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  Phase 2 — Telemetry Producer                                               │
-│  Spring Boot · 20 cars · 10 events/sec/car → raw-telemetry (20 partitions) │
+│  Phase 2 — Telemetry Producer → raw-telemetry (Avro)                        │
 └─────────────────────────┬───────────────────────────────────────────────────┘
-                          │ Avro / Schema Registry
-┌─────────────────────────▼───────────────────────────────────────────────────┐
-│  Kafka Cluster  (3-broker KRaft, combined mode — no ZooKeeper)              │
-│  Topics: raw-telemetry · enriched-telemetry · stream-aggregates             │
-│          pit-predictions · race-outcomes · dlq-telemetry · circuit-metadata │
-└───┬───────────────────────────────────────────────────────────────────┬─────┘
-    │ Phase 3 — Kafka Streams                                           │ Phase 5
-┌───▼────────────────┐                                        ┌────────▼──────┐
-│  stream-processor  │ CDC enrichment via Debezium+Postgres   │  ml-consumer  │
-│  EnrichedTelemetry │ → enriched-telemetry (20 partitions)   │  Python ML    │
-│  TireAggregates    │                                        │  pit-predict  │
-└────────────────────┘                                        └───────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Kafka Cluster (KRaft) · Schema Registry                                    │
+│  Topics: raw · enriched · stream-aggregates · circuit-metadata · drivers …  │
+└─────────┬───────────────────────────────────────────────────┬───────────────┘
+          │ Phase 3 (Kafka Streams + Debezium CDC)               │ Phase 4 ksqlDB
+┌─────────▼───────────────────────────────┐   ┌─────────────────▼───────────────┐
+│  stream-processor · Postgres reference │   │  hopping windows → JSON sink │
+│  → enriched-telemetry                   │   │  → stream-aggregates         │
+└─────────────────────────────────────────┘   └───────────────────────────────┘
+                                                          │
+                                               Phase 5 · ml-consumer (pit ML)
                 Observability: Prometheus + Grafana + JMX Exporter
 ```
 
@@ -28,11 +27,11 @@ Real-time Formula 1 telemetry processing platform built on Apache Kafka (KRaft),
 
 | Phase | Focus | Status |
 |-------|-------|--------|
-| 1 | Infrastructure Foundation (Kafka, Schema Registry, Prometheus, Grafana) | 🔨 In Progress |
-| 2 | Telemetry Simulator (Spring Boot producer, Avro schema) | ⏳ Pending |
-| 3 | Stream Enrichment (Kafka Streams, Debezium CDC, PostgreSQL) | ⏳ Pending |
-| 4 | ksqlDB Analytics (CSAS queries, sliding window aggregates) | ⏳ Pending |
-| 5 | ML Inference Consumer (Python, RandomForest, pit-stop predictions) | ⏳ Pending |
+| 1 | Infrastructure Foundation (Kafka, Schema Registry, Prometheus, Grafana) | Done |
+| 2 | Telemetry Simulator (Spring Boot producer, Avro schema) | Done |
+| 3 | Stream Enrichment (Kafka Streams, Debezium CDC, PostgreSQL) | Done |
+| 4 | ksqlDB Analytics (CSAS / CTAS, hopping-window aggregates → `stream-aggregates`) | Done |
+| 5 | ML Inference Consumer (Python, RandomForest, pit-stop predictions) | Done |
 
 ## Quick Start
 
@@ -52,7 +51,12 @@ bash infra/scripts/create-topics.sh
 # 5. Set Schema Registry compatibility
 bash infra/scripts/configure-schema-registry.sh
 
-# 6. Validate Phase 1
+# 6. Phase 4 — deploy ksqlDB queries (after producer + stream-processor have run once so
+#    enriched-telemetry value schema exists in Schema Registry)
+bash infra/scripts/deploy-ksql-queries.sh
+
+# 7. Validate cluster (Phases 1–5 health checks). Ensure producer + stream-processor are
+#    running so CDC topics, enriched-telemetry, and pit-predictions contain data.
 bash infra/scripts/validate-cluster.sh
 ```
 
@@ -68,6 +72,8 @@ bash infra/scripts/validate-cluster.sh
 | Prometheus | http://localhost:9090 |
 | Grafana | http://localhost:3000 (admin/admin) |
 | PostgreSQL | localhost:5432 |
+| ksqlDB | http://localhost:8088 |
+| ML consumer (Phase 5) | http://localhost:8099/health |
 
 ## Kafka Topics
 
@@ -75,7 +81,7 @@ bash infra/scripts/validate-cluster.sh
 |-------|-----------|-----|-----------|-------|
 | raw-telemetry | 20 | 3 | 2h | Phase 2 producer output |
 | enriched-telemetry | 20 | 3 | 6h | Phase 3 Kafka Streams output |
-| stream-aggregates | 10 | 3 | 24h | Tire + pace aggregates |
+| stream-aggregates | 10 | 3 | 24h | Phase 4 ksqlDB `AGGREGATE_METRICS` sink (JSON) |
 | pit-predictions | 5 | 3 | 24h | Phase 5 ML consumer output |
 | race-outcomes | 5 | 3 | compact | Final race results |
 | dlq-telemetry | 3 | 3 | 7d | Dead letter queue |
@@ -84,3 +90,7 @@ bash infra/scripts/validate-cluster.sh
 ## Context & Progress Tracking
 
 See [`context.json`](./context.json) for the current build status and documentation of each completed issue.
+
+**Phase guides:** [Phase 1](./docs/phase-1-infrastructure.md) · [Phase 2](./docs/phase-2-telemetry-producer.md) · [Phase 3](./docs/phase-3-stream-enrichment.md) · [Phase 4](./docs/phase-4-ksqldb-analytics.md) · [Phase 5](./docs/phase-5-ml-consumer.md)
+
+**Demo & system testing (Phases 1–5):** [demo-system-test-suite.md](./docs/demo-system-test-suite.md)

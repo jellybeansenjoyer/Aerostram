@@ -38,9 +38,7 @@ create_topic enriched-telemetry \
   --config min.insync.replicas=2
 
 # ── Aggregate / prediction topics ─────────────────────────────────────────────
-create_topic stream-aggregates \
-  --partitions 10 --replication-factor 3 \
-  --config retention.ms=86400000
+# stream-aggregates is created by Phase 4 ksqlDB (AGGREGATE_METRICS CTAS) with PARTITIONS=10, REPLICAS=3.
 
 create_topic pit-predictions \
   --partitions 5 --replication-factor 3 \

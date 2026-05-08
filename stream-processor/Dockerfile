@@ -9,6 +9,8 @@ RUN mvn clean package -DskipTests -q
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM amazoncorretto:21-alpine
 WORKDIR /app
+# Kafka Streams / RocksDB JNI needs GNU libstdc++ (not bundled on minimal Alpine).
+RUN apk add --no-cache gcompat libstdc++
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 COPY --from=builder /build/target/aerostream-stream-processor-*.jar app.jar
 USER appuser
