@@ -1,0 +1,56 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 14% 98%;
+    --foreground: 224 30% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 30% 12%;
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 10% 40%;
+    --accent: 357 91% 44%;
+    --accent-foreground: 0 0% 100%;
+    --border: 220 14% 88%;
+    --sidebar: 220 18% 96%;
+    --sidebar-foreground: 224 25% 22%;
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 222 24% 6%;
+    --foreground: 210 20% 96%;
+    --card: 222 22% 9%;
+    --card-foreground: 210 20% 96%;
+    --muted: 222 18% 14%;
+    /* FE-11: slightly brighter secondary text for WCAG AA on dark background */
+    --muted-foreground: 215 16% 70%;
+    --accent: 357 91% 48%;
+    --accent-foreground: 0 0% 100%;
+    --border: 222 18% 16%;
+    --sidebar: 222 26% 8%;
+    --sidebar-foreground: 210 18% 88%;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}

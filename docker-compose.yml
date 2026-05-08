@@ -283,6 +283,7 @@ services:
       start_period: 15s
     networks:
       - aerostream-network
+    restart: unless-stopped
 
   # ── Phase 3: Kafka Connect + Debezium ───────────────────────────────────────
   kafka-connect:
@@ -429,6 +430,40 @@ services:
       timeout: 10s
       retries: 8
       start_period: 40s
+    networks:
+      - aerostream-network
+    restart: unless-stopped
+
+  # ── Dashboard BFF — read-only Kafka previews (pit-predictions, stream-aggregates) ──
+  dashboard-bff:
+    build:
+      context: ./bff
+      dockerfile: Dockerfile
+    container_name: aerostream-dashboard-bff
+    ports:
+      - "${DASHBOARD_BFF_PORT:-8089}:8089"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      PIT_PREDICTIONS_TOPIC: pit-predictions
+      STREAM_AGGREGATES_TOPIC: stream-aggregates
+      POLL_DEADLINE_SEC: "5"
+      MAX_LIMIT: "100"
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8089/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
     networks:
       - aerostream-network
     restart: unless-stopped

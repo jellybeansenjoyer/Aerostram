@@ -94,3 +94,5 @@ See [`context.json`](./context.json) for the current build status and documentat
 **Phase guides:** [Phase 1](./docs/phase-1-infrastructure.md) · [Phase 2](./docs/phase-2-telemetry-producer.md) · [Phase 3](./docs/phase-3-stream-enrichment.md) · [Phase 4](./docs/phase-4-ksqldb-analytics.md) · [Phase 5](./docs/phase-5-ml-consumer.md)
 
 **Demo & system testing (Phases 1–5):** [demo-system-test-suite.md](./docs/demo-system-test-suite.md)
+
+**Frontend dashboard (planned):** [frontend-dashboard-plan.md](./docs/frontend-dashboard-plan.md) — use cases, screens, backend mapping, GitHub-style issues **FE-0…FE-11**, optional BFF **FE-9**.
