@@ -1,6 +1,16 @@
-# ── Environment ───────────────────────────────────────────────────────────────
+# ── Environment & secrets (never commit real credentials) ───────────────────
 .env
 *.env.local
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+credentials.json
+**/credentials.json
 
 # ── Java / Maven / Gradle ─────────────────────────────────────────────────────
 *.class

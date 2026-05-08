@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -36,6 +37,8 @@ public class TelemetrySimulator {
 
     private final List<CarState> cars = new ArrayList<>();
     private ScheduledExecutorService executor;
+    /** Single repeating tick; cancelled/rescheduled when events/sec changes at runtime (BE-SIM-1). */
+    private volatile ScheduledFuture<?> tickFuture;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicLong totalPublished = new AtomicLong(0);
     private final AtomicLong totalDlqRouted = new AtomicLong(0);
@@ -82,10 +85,9 @@ public class TelemetrySimulator {
             initCars();
             activeCarsGauge.set(cars.size());
 
-            // Compute delay between ticks: 1_000_000 µs / (events/sec / cars)
-            long tickIntervalMicros = Math.max(1, 1_000_000L / Math.max(1, props.getEventsPerSecond() / cars.size()));
             executor = Executors.newScheduledThreadPool(4);
-            executor.scheduleAtFixedRate(this::tickAll, 0, tickIntervalMicros, TimeUnit.MICROSECONDS);
+            long tickIntervalMicros = computeTickIntervalMicros();
+            tickFuture = executor.scheduleAtFixedRate(this::tickAll, 0, tickIntervalMicros, TimeUnit.MICROSECONDS);
 
             log.info("Simulator started: {} cars, target {}/sec, tick interval {}µs",
                 cars.size(), props.getEventsPerSecond(), tickIntervalMicros);
@@ -94,9 +96,54 @@ public class TelemetrySimulator {
         }
     }
 
+    /**
+     * Updates target aggregate events/sec (all cars). When running, reschedules the tick without restart.
+     */
+    public synchronized void setTargetEventsPerSecond(int eventsPerSecond) {
+        if (eventsPerSecond < 1) {
+            throw new IllegalArgumentException("eventsPerSecond must be >= 1");
+        }
+        if (eventsPerSecond > 1_000_000) {
+            throw new IllegalArgumentException("eventsPerSecond must be <= 1000000");
+        }
+        props.setEventsPerSecond(eventsPerSecond);
+        if (running.get()) {
+            rescheduleTicks();
+        }
+    }
+
+    /**
+     * Interval between ticks so that (cars per tick) × (ticks per second) ≈ target EPS.
+     * Uses {@code 1_000_000 * cars / EPS} — avoids Java int division truncating {@code EPS/cars} to 0.
+     */
+    private long computeTickIntervalMicros() {
+        int carsCount = Math.max(1, cars.size());
+        int eps = Math.max(1, props.getEventsPerSecond());
+        return Math.max(1L, (1_000_000L * (long) carsCount) / (long) eps);
+    }
+
+    private void rescheduleTicks() {
+        if (!running.get() || executor == null || executor.isShutdown()) {
+            return;
+        }
+        if (tickFuture != null) {
+            tickFuture.cancel(false);
+            tickFuture = null;
+        }
+        long interval = computeTickIntervalMicros();
+        tickFuture = executor.scheduleAtFixedRate(this::tickAll, 0, interval, TimeUnit.MICROSECONDS);
+        log.info("Simulator tick rescheduled: target {} events/sec, interval {}µs", props.getEventsPerSecond(), interval);
+    }
+
     public synchronized void stop() {
         if (running.compareAndSet(true, false)) {
-            executor.shutdownNow();
+            if (tickFuture != null) {
+                tickFuture.cancel(false);
+                tickFuture = null;
+            }
+            if (executor != null) {
+                executor.shutdownNow();
+            }
             cars.clear();
             activeCarsGauge.set(0);
             log.info("Simulator stopped. Total published: {}, DLQ routed: {}",
