@@ -3,7 +3,8 @@
 # Prerequisites: docker compose up -d (ksqldb-server healthy), create-topics.sh, enriched-telemetry
 # topic registered in Schema Registry (run producer + stream-processor at least briefly).
 #
-# Idempotency: if objects exist, run: bash infra/scripts/reset-ksql-queries.sh && re-run this script.
+# Idempotency: re-run safe — duplicate CREATE (object already exists) is treated as SKIP.
+# For a clean drop + recreate, run: bash infra/scripts/reset-ksql-queries.sh
 
 set -euo pipefail
 
@@ -97,9 +98,18 @@ for path in files:
     try:
         out = post_ksql(cleaned + ("\n" if not cleaned.endswith(";") else ""))
         check_errors(out)
-        print(f"  OK")
+        print("  OK")
     except urllib.error.HTTPError as e:
         err_body = e.read().decode(errors="replace")
+        if e.code == 400:
+            try:
+                err_json = json.loads(err_body)
+                msg = (err_json.get("message") or "")
+                if "already exists" in msg:
+                    print("  SKIP (object already deployed — idempotent re-run)")
+                    continue
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
         print(f"  HTTP {e.code}: {err_body[:2000]}", file=sys.stderr)
         raise
 PY
