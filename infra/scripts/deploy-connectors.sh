@@ -15,11 +15,21 @@ cd "${REPO_ROOT}"
 
 # Load repo .env so POSTGRES_PASSWORD matches the postgres container (same as docker compose).
 if [[ -f "${REPO_ROOT}/.env" ]]; then
+  # Spaces around "=" break Bash assignment lines (e.g. POSTGRES_PASSWORD = x sets nothing useful).
+  if grep -qE '^[[:space:]]*POSTGRES_PASSWORD[[:space:]]+=' "${REPO_ROOT}/.env"; then
+    echo "ERROR: In .env, do not put spaces around '=' for POSTGRES_PASSWORD."
+    echo "  Wrong:  POSTGRES_PASSWORD = aerostream_secret"
+    echo "  Right:  POSTGRES_PASSWORD=aerostream_secret"
+    exit 1
+  fi
   set -a
   # shellcheck disable=SC1091
   source "${REPO_ROOT}/.env"
   set +a
 fi
+
+# Match docker-compose: empty or unset → same default as POSTGRES_PASSWORD:-aerostream_secret
+export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-aerostream_secret}"
 
 KC_URL="http://localhost:${KAFKA_CONNECT_PORT:-8083}"
 
@@ -28,8 +38,8 @@ echo " AeroStream — CDC Connector Deployer"
 echo " Connect URL: ${KC_URL}"
 echo " Working dir: ${REPO_ROOT}"
 echo "================================================"
-echo " Postgres password for connectors: from POSTGRES_PASSWORD env"
-echo " (defaults to aerostream_secret; must match docker-compose postgres)."
+echo " Postgres password for connectors: POSTGRES_PASSWORD from .env (see docker-compose postgres)."
+echo " Using password length: ${#POSTGRES_PASSWORD} chars (value not printed)."
 echo "================================================"
 
 echo "Waiting for Kafka Connect REST API..."
@@ -40,13 +50,29 @@ done
 echo "Kafka Connect is ready."
 echo ""
 
+echo "Verifying Postgres password over TCP (same auth path as Kafka Connect → postgres:5432)..."
+# Plain `psql` without -h uses a Unix socket; pg_hba often trusts that even when the password
+# is wrong — giving a false OK. Debezium connects via TCP + SCRAM like:
+#   psql -h postgres -p 5432 ...
+if ! docker compose exec -T -e "PGPASSWORD=${POSTGRES_PASSWORD}" postgres \
+  psql -h postgres -p 5432 -U aerostream -d aerostream -c 'SELECT 1' >/dev/null 2>&1; then
+  echo "ERROR: TCP authentication failed for user aerostream with POSTGRES_PASSWORD from .env."
+  echo "  Kafka Connect uses TCP (like this check). Fix one of:"
+  echo "  1) Set POSTGRES_PASSWORD in .env to match the password Postgres was initialized with."
+  echo "  2) Or reset local DB (DESTROYS DATA): docker compose stop postgres && docker volume rm <project>_postgres-data && docker compose up -d postgres"
+  echo "     then wait for healthy Postgres and re-run this script."
+  exit 1
+fi
+echo "Postgres TCP credential check OK (matches Debezium)."
+echo ""
+
 # Merge POSTGRES_PASSWORD into connector JSON (connector files cannot stay in sync with .env otherwise).
 connector_json_payload() {
   local FILE="$1"
   python3 - "${FILE}" << 'PY'
 import json, os, sys
 path = sys.argv[1]
-pw = os.environ.get("POSTGRES_PASSWORD", "aerostream_secret")
+pw = os.environ.get("POSTGRES_PASSWORD") or "aerostream_secret"
 with open(path, encoding="utf-8") as f:
     doc = json.load(f)
 doc["config"]["database.password"] = pw
@@ -60,7 +86,7 @@ connector_config_only() {
   python3 - "${FILE}" << 'PY'
 import json, os, sys
 path = sys.argv[1]
-pw = os.environ.get("POSTGRES_PASSWORD", "aerostream_secret")
+pw = os.environ.get("POSTGRES_PASSWORD") or "aerostream_secret"
 with open(path, encoding="utf-8") as f:
     doc = json.load(f)
 doc["config"]["database.password"] = pw
