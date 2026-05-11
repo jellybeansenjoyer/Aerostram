@@ -1,0 +1,74 @@
+%% AeroStream full-stack architecture — regenerate all exports: bash infra/scripts/render-architecture-diagrams.sh
+flowchart TB
+  subgraph P1["Phase 1 — Platform & observability"]
+    direction TB
+    subgraph KC["Apache Kafka — KRaft combined mode · no ZooKeeper · RF=3 · min.insync.replicas=2"]
+      direction LR
+      K1["kafka-1<br/>ext :9092"]
+      K2["kafka-2<br/>ext :9094"]
+      K3["kafka-3<br/>ext :9096"]
+    end
+    SR["Schema Registry :8081<br/>Confluent 7.6.1 · global BACKWARD · Avro governance"]
+    KUI["Kafka UI :8080<br/>topics · consumers · SR browse"]
+    subgraph OBS["Metrics chain"]
+      JMX["JMX Prometheus agent<br/>:7071 per broker"]
+      PR["Prometheus :9090<br/>15s scrape · 15d retention"]
+      GF["Grafana :3000<br/>datasources + dashboards"]
+    end
+    SCRIPTS["infra/scripts<br/>init-kafka-storage · create-topics<br/>configure-schema-registry<br/>validate-cluster"]
+    K1 & K2 & K3 --> JMX --> PR --> GF
+    SR -.->|scraped| PR
+  end
+
+  subgraph P2["Phase 2 — Telemetry simulator & producer"]
+    PROD["producer — Spring Boot 3 · Java 21 · :8090<br/>20-car physics sim · configurable EPS<br/>idempotent producer · LZ4 · car_id partitioner<br/>Micrometer → /actuator/prometheus<br/>DLQ · poison-pill test hooks"]
+  end
+
+  subgraph P3["Phase 3 — Reference data · CDC · enrichment"]
+    PG["PostgreSQL 16 :5432<br/>wal_level=logical · circuits · teams<br/>drivers DRV_01–20 · regulations"]
+    KCNC["Kafka Connect :8083<br/>Debezium PostgreSQL plugin<br/>SMT: unwrap → route → extractKey"]
+    SP["stream-processor — Spring Boot · Kafka Streams · :8091<br/>exactly_once_v2 · GlobalKTable ×2<br/>leftJoin circuit + driver → EnrichedTelemetryEvent"]
+    PG -->|logical decoding WAL| KCNC
+  end
+
+  KCNC -->|circuits CDC| CMETA[(circuit-metadata<br/>3p compact Avro)]
+  KCNC -->|drivers CDC| DPROF[(driver-profiles<br/>5p compact Avro)]
+
+  subgraph P4["Phase 4 — Streaming SQL analytics"]
+    KSQL["ksqlDB server :8088<br/>ENRICHED_EVENTS stream · Avro SR<br/>AGGREGATE_METRICS CTAS<br/>HOPPING 30s · ADVANCE 10s<br/>deploy-ksql-queries.sh"]
+  end
+
+  subgraph P5["Phase 5 — ML inference"]
+    ML["ml-consumer — Python 3.11 · FastAPI :8099<br/>/health · /ready · /metrics<br/>confluent-kafka · Avro SR<br/>sklearn RandomForest · pit_rf.pkl<br/>train_model @ image build"]
+  end
+
+  subgraph BFF["Dashboard BFF optional — :8089"]
+    DBFF["dashboard-bff<br/>read-only previews<br/>pit-predictions · stream-aggregates"]
+  end
+
+  RAW[(raw-telemetry<br/>20p · Avro TelemetryEvent)]
+  ENR[(enriched-telemetry<br/>20p · Avro enriched)]
+  AGG[(stream-aggregates<br/>10p · JSON aggregates)]
+  PIT[(pit-predictions<br/>5p · Avro PitPrediction)]
+
+  PROD -->|produce TelemetryEvent| RAW
+  RAW --> SP
+  CMETA --> SP
+  DPROF --> SP
+  SP -->|produce EnrichedTelemetryEvent| ENR
+  ENR --> KSQL
+  KSQL -->|sink CTAS| AGG
+  ENR --> ML
+  ML -->|produce PitPrediction| PIT
+  PROD -.->|failures| DLQ[(dlq-telemetry)]
+
+  PROD -.->|scrape :8090/actuator/prometheus| PR
+  KCNC -.->|metrics| PR
+  SP -.->|scrape :8091/actuator/prometheus| PR
+  ML -.->|scrape :8099/metrics| PR
+
+  DBFF -->|consume preview| PIT
+  DBFF -->|consume preview| AGG
+
+  SCRIPTS -.->|validate-cluster gates| K1
+  SCRIPTS -.->|validate-cluster gates| SR

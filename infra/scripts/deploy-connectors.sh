@@ -29,9 +29,18 @@ if [[ -f "${REPO_ROOT}/.env" ]]; then
 fi
 
 # Match docker-compose: empty or unset → same default as POSTGRES_PASSWORD:-aerostream_secret
-export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-aerostream_secret}"
+# Strip CRLF / stray whitespace — Windows .env line endings break JDBC in Kafka Connect while psql may still pass.
+_raw_pw="${POSTGRES_PASSWORD:-aerostream_secret}"
+POSTGRES_PASSWORD="$(
+  python3 -c "import sys; s=(sys.argv[1] or '').strip().replace('\r','').replace('\n',''); print(s if s else 'aerostream_secret')" "${_raw_pw}"
+)"
+export POSTGRES_PASSWORD
+unset _raw_pw
 
 KC_URL="http://localhost:${KAFKA_CONNECT_PORT:-8083}"
+# Avoid hangs if Connect is down or REST handler stalls (curl default = wait forever).
+CURL_WAIT_SEC="${CURL_WAIT_SEC:-10}"
+CURL_API_SEC="${CURL_API_SEC:-120}"
 
 echo "================================================"
 echo " AeroStream — CDC Connector Deployer"
@@ -42,20 +51,26 @@ echo " Postgres password for connectors: POSTGRES_PASSWORD from .env (see docker
 echo " Using password length: ${#POSTGRES_PASSWORD} chars (value not printed)."
 echo "================================================"
 
-echo "Waiting for Kafka Connect REST API..."
-until curl -sf "${KC_URL}/connectors" > /dev/null; do
-  echo "  not ready, retrying in 5s..."
+echo "Waiting for Kafka Connect REST API (${KC_URL})..."
+CONNECT_ATTEMPTS=0
+CONNECT_MAX_ATTEMPTS="${CONNECT_MAX_ATTEMPTS:-120}"
+until curl -sf --max-time "${CURL_WAIT_SEC}" "${KC_URL}/connectors" > /dev/null; do
+  CONNECT_ATTEMPTS=$((CONNECT_ATTEMPTS + 1))
+  if [[ "${CONNECT_ATTEMPTS}" -ge "${CONNECT_MAX_ATTEMPTS}" ]]; then
+    echo ""
+    echo "ERROR: Kafka Connect did not respond OK within $((CONNECT_MAX_ATTEMPTS * 5))s."
+    echo "  Start or fix Connect: docker compose ps kafka-connect && docker compose logs kafka-connect --tail 30"
+    exit 1
+  fi
+  echo "  not ready, retrying in 5s... (${CONNECT_ATTEMPTS}/${CONNECT_MAX_ATTEMPTS})"
   sleep 5
 done
 echo "Kafka Connect is ready."
 echo ""
 
-echo "Verifying Postgres password over TCP (same auth path as Kafka Connect → postgres:5432)..."
-# Plain `psql` without -h uses a Unix socket; pg_hba often trusts that even when the password
-# is wrong — giving a false OK. Debezium connects via TCP + SCRAM like:
-#   psql -h postgres -p 5432 ...
+echo "Verifying Postgres accepts TCP on 5432 (same path Debezium uses from kafka-connect)..."
 if ! docker compose exec -T -e "PGPASSWORD=${POSTGRES_PASSWORD}" postgres \
-  psql -h postgres -p 5432 -U aerostream -d aerostream -c 'SELECT 1' >/dev/null 2>&1; then
+  psql -h 127.0.0.1 -p 5432 -U aerostream -d aerostream -c 'SELECT 1' >/dev/null 2>&1; then
   echo "ERROR: TCP authentication failed for user aerostream with POSTGRES_PASSWORD from .env."
   echo "  Kafka Connect uses TCP (like this check). Fix one of:"
   echo "  1) Set POSTGRES_PASSWORD in .env to match the password Postgres was initialized with."
@@ -72,7 +87,10 @@ connector_json_payload() {
   python3 - "${FILE}" << 'PY'
 import json, os, sys
 path = sys.argv[1]
-pw = os.environ.get("POSTGRES_PASSWORD") or "aerostream_secret"
+_raw = os.environ.get("POSTGRES_PASSWORD") or "aerostream_secret"
+pw = _raw.strip().replace("\r", "").replace("\n", "")
+if not pw:
+    pw = "aerostream_secret"
 with open(path, encoding="utf-8") as f:
     doc = json.load(f)
 doc["config"]["database.password"] = pw
@@ -86,7 +104,10 @@ connector_config_only() {
   python3 - "${FILE}" << 'PY'
 import json, os, sys
 path = sys.argv[1]
-pw = os.environ.get("POSTGRES_PASSWORD") or "aerostream_secret"
+_raw = os.environ.get("POSTGRES_PASSWORD") or "aerostream_secret"
+pw = _raw.strip().replace("\r", "").replace("\n", "")
+if not pw:
+    pw = "aerostream_secret"
 with open(path, encoding="utf-8") as f:
     doc = json.load(f)
 doc["config"]["database.password"] = pw
@@ -104,7 +125,7 @@ deploy_connector() {
   err_body="$(mktemp)"
   # No -f: we need the real HTTP code even on 4xx, and must not chain || echo 000
   local HTTP_STATUS
-  HTTP_STATUS=$(connector_json_payload "${FILE}" | curl -sS -o "${err_body}" -w "%{http_code}" \
+  HTTP_STATUS=$(connector_json_payload "${FILE}" | curl -sS --max-time "${CURL_API_SEC}" -o "${err_body}" -w "%{http_code}" \
     -X POST "${KC_URL}/connectors" \
     -H "Content-Type: application/json" \
     -d @-)
@@ -115,7 +136,7 @@ deploy_connector() {
       ;;
     409)
       echo -n "EXISTS, applying config update... "
-      HTTP_PUT=$(connector_config_only "${FILE}" | curl -sS -o "${err_body}" -w "%{http_code}" \
+      HTTP_PUT=$(connector_config_only "${FILE}" | curl -sS --max-time "${CURL_API_SEC}" -o "${err_body}" -w "%{http_code}" \
         -X PUT "${KC_URL}/connectors/${NAME}/config" \
         -H "Content-Type: application/json" \
         -d @-)
@@ -144,6 +165,14 @@ deploy_connector() {
       echo "  Response from Kafka Connect:"
       sed 's/^/  /' "${err_body}" | head -c 4000
       echo ""
+      if grep -q "password authentication failed" "${err_body}" 2>/dev/null; then
+        echo ""
+        echo "  Hint: POSTGRES_PASSWORD in .env must match the password Postgres was initialized with"
+        echo "  (see postgres-data volume). Typo in .env (e.g. aerostrean vs aerostream_secret), Windows CRLF,"
+        echo "  or changing .env after first init without ALTER USER causes this. Compare with:"
+        echo "    docker compose exec postgres printenv POSTGRES_PASSWORD"
+        echo "  (length only) echo -n \"\$POSTGRES_PASSWORD\" | wc -c"
+      fi
       rm -f "${err_body}"
       exit 1
       ;;
@@ -160,9 +189,9 @@ sleep 15
 
 echo ""
 echo "Connector statuses:"
-CIRCUITS_STATE=$(curl -s "${KC_URL}/connectors/aerostream-circuits-connector/status" \
+CIRCUITS_STATE=$(curl -sS --max-time 30 "${KC_URL}/connectors/aerostream-circuits-connector/status" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['connector']['state'])" 2>/dev/null || echo "UNKNOWN")
-DRIVERS_STATE=$(curl -s "${KC_URL}/connectors/aerostream-drivers-connector/status" \
+DRIVERS_STATE=$(curl -sS --max-time 30 "${KC_URL}/connectors/aerostream-drivers-connector/status" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['connector']['state'])" 2>/dev/null || echo "UNKNOWN")
 
 echo "  aerostream-circuits-connector: ${CIRCUITS_STATE}"

@@ -1,0 +1,8 @@
+{
+  "theme": "dark",
+  "flowchart": {
+    "htmlLabels": true,
+    "curve": "basis",
+    "padding": 12
+  }
+}
