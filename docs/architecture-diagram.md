@@ -4,11 +4,11 @@
 
 | Goal | Tool |
 |------|------|
-| **Machine-readable source + CI** | **`docs/diagrams/aerostream-architecture.mmd`** — regenerate PNG/SVG with `@mermaid-js/mermaid-cli` (see comment in `.mmd` file). |
+| **Machine-readable source + CI** | **`docs/diagrams/aerostream-architecture.mmd`** — run `bash infra/scripts/render-architecture-diagrams.sh` after edits. |
 | **Pixel-perfect slides / posters** | **diagrams.net (draw.io)** or **Excalidraw** — manual export PNG/SVG. |
 | **Formal C4 / enterprise models** | **Structurizr**, **PlantUML** — heavier setup; optional for this repo. |
 
-No extra requirements needed unless you want a **specific export** (e.g. PNG for LinkedIn, dark theme, or a **C4 Level 2** decomposition); say so and we can derive it from this source.
+**Exports:** light + dark SVG/PNG, and LinkedIn-sized dark PNGs (`fit-linkedin.py`), are described below.
 
 ---
 
@@ -32,13 +32,48 @@ No extra requirements needed unless you want a **specific export** (e.g. PNG for
 
 The rendered diagram maps **every shipped phase**: infra (KRaft, SR, UI, observability), producer, Postgres + Connect + Streams enrichment, ksqlDB analytics, Python ML consumer, optional dashboard BFF, and **Prometheus scrape sources** (dashed).
 
+### Light theme (default)
+
 | Format | Path |
 |--------|------|
-| **SVG** (scales cleanly; best for docs/web) | [`diagrams/aerostream-architecture.svg`](./diagrams/aerostream-architecture.svg) |
-| **PNG** (slides, thumbnails) | [`diagrams/aerostream-architecture.png`](./diagrams/aerostream-architecture.png) |
-| **Source** (edit + regenerate) | [`diagrams/aerostream-architecture.mmd`](./diagrams/aerostream-architecture.mmd) |
+| **SVG** | [`diagrams/aerostream-architecture.svg`](./diagrams/aerostream-architecture.svg) |
+| **PNG** | [`diagrams/aerostream-architecture.png`](./diagrams/aerostream-architecture.png) |
 
-Regenerate after editing the `.mmd` file:
+### Dark theme
+
+| Format | Path |
+|--------|------|
+| **SVG** | [`diagrams/aerostream-architecture-dark.svg`](./diagrams/aerostream-architecture-dark.svg) |
+| **PNG** | [`diagrams/aerostream-architecture-dark.png`](./diagrams/aerostream-architecture-dark.png) |
+
+Config: [`diagrams/mermaid-config-dark.json`](./diagrams/mermaid-config-dark.json) (`"theme": "dark"`).
+
+### LinkedIn — article / feed image (dark, letterboxed)
+
+LinkedIn recommends **1200 × 627** px (≈1.91∶1) for link previews and feed images. The diagram is scaled **down to fit** inside that frame with padding (RGB **30,30,30**) so nothing is cropped.
+
+| Use | Dimensions | Path |
+|-----|------------|------|
+| **Standard** | **1200 × 627** px | [`diagrams/aerostream-architecture-linkedin-1200x627-dark.png`](./diagrams/aerostream-architecture-linkedin-1200x627-dark.png) |
+| **Retina / sharper upload** | **2400 × 1254** px (2×) | [`diagrams/aerostream-architecture-linkedin-2400x1254-dark@2x.png`](./diagrams/aerostream-architecture-linkedin-2400x1254-dark@2x.png) |
+
+Letterboxing script: [`diagrams/fit-linkedin.py`](./diagrams/fit-linkedin.py) (requires **Pillow**).
+
+### Source
+
+| | Path |
+|--|------|
+| **Mermaid source** | [`diagrams/aerostream-architecture.mmd`](./diagrams/aerostream-architecture.mmd) |
+
+### Regenerate everything
+
+One shot (Mermaid CLI + light/dark PNG/SVG + LinkedIn fits; installs Pillow into `docs/diagrams/.pillow_vendor/`, gitignored):
+
+```bash
+bash infra/scripts/render-architecture-diagrams.sh
+```
+
+Manual steps — light PNG/SVG:
 
 ```bash
 npx @mermaid-js/mermaid-cli -c docs/diagrams/mermaid-config.json \
@@ -49,6 +84,8 @@ npx @mermaid-js/mermaid-cli -c docs/diagrams/mermaid-config.json \
   -i docs/diagrams/aerostream-architecture.mmd \
   -o docs/diagrams/aerostream-architecture.png -w 3200 -H 2800 -s 2
 ```
+
+Manual — dark PNG/SVG: use `mermaid-config-dark.json` and outputs `aerostream-architecture-dark.svg` / `.png`. Then run `python3 docs/diagrams/fit-linkedin.py` with Pillow installed (or run `render-architecture-diagrams.sh`).
 
 ### Reading order
 

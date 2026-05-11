@@ -4,24 +4,32 @@ Real-time Formula 1 telemetry processing platform built on Apache Kafka (KRaft),
 
 ## Architecture Overview
 
+End-to-end pipeline across **five phases**: three-broker **Kafka (KRaft)** and **Schema Registry**; **Spring Boot** telemetry producer; **PostgreSQL** + **Debezium CDC** + **Kafka Streams** enrichment; **ksqlDB** windowed aggregates; **Python** ML inference to **`pit-predictions`**; **Prometheus**, **Grafana**, and validation scripts.
+
+<p align="center">
+  <img src="docs/diagrams/aerostream-architecture.svg" alt="AeroStream full-stack architecture: KRaft Kafka, Schema Registry, producer, Postgres and Kafka Connect CDC, stream processor, ksqlDB, ML consumer, dashboard BFF, Prometheus scrape paths" width="95%" />
+</p>
+
+<p align="center">
+  <sub>
+    <a href="docs/diagrams/aerostream-architecture-dark.svg">Dark (SVG)</a>
+    · <a href="docs/diagrams/aerostream-architecture-dark.png">Dark (PNG)</a>
+    · <a href="docs/diagrams/aerostream-architecture-linkedin-1200x627-dark.png">LinkedIn 1200×627 (dark)</a>
+    · Full exports &amp; regeneration: <a href="docs/architecture-diagram.md">docs/architecture-diagram.md</a>
+  </sub>
+</p>
+
+<details>
+<summary><b>Compact ASCII overview</b> (plain-text)</summary>
+
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  Phase 2 — Telemetry Producer → raw-telemetry (Avro)                        │
-└─────────────────────────┬───────────────────────────────────────────────────┘
-                          ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  Kafka Cluster (KRaft) · Schema Registry                                    │
-│  Topics: raw · enriched · stream-aggregates · circuit-metadata · drivers …  │
-└─────────┬───────────────────────────────────────────────────┬───────────────┘
-          │ Phase 3 (Kafka Streams + Debezium CDC)               │ Phase 4 ksqlDB
-┌─────────▼───────────────────────────────┐   ┌─────────────────▼───────────────┐
-│  stream-processor · Postgres reference │   │  hopping windows → JSON sink │
-│  → enriched-telemetry                   │   │  → stream-aggregates         │
-└─────────────────────────────────────────┘   └───────────────────────────────┘
-                                                          │
-                                               Phase 5 · ml-consumer (pit ML)
-                Observability: Prometheus + Grafana + JMX Exporter
+Phase 2 producer → raw-telemetry ─┬→ Phase 3 stream-processor → enriched-telemetry ─┬→ Phase 4 ksqlDB → stream-aggregates
+                                   │                                                  └→ Phase 5 ml-consumer → pit-predictions
+Postgres ─ CDC (Debezium/Connect) → circuit-metadata, driver-profiles ─────────────┘
+Observability: Prometheus + Grafana + JMX · validate-cluster
 ```
+
+</details>
 
 ## Phases
 
