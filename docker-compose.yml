@@ -42,8 +42,8 @@ services:
       KAFKA_DEFAULT_REPLICATION_FACTOR: 3
       KAFKA_MIN_INSYNC_REPLICAS: 2
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-      KAFKA_JMX_PORT: 9101
-      KAFKA_JMX_HOSTNAME: kafka-1
+      # Omit KAFKA_JMX_PORT / KAFKA_JMX_HOSTNAME: legacy RMI JMX can contend with the
+      # in-process jmx_prometheus_javaagent on busy brokers and slow Prometheus scrapes.
       KAFKA_OPTS: "-javaagent:/etc/kafka/jmx-agent/jmx_prometheus_javaagent-0.19.0.jar=7071:/etc/kafka/jmx-agent/kafka-jmx.yml"
     expose:
       - "7071"
@@ -83,8 +83,6 @@ services:
       KAFKA_DEFAULT_REPLICATION_FACTOR: 3
       KAFKA_MIN_INSYNC_REPLICAS: 2
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-      KAFKA_JMX_PORT: 9101
-      KAFKA_JMX_HOSTNAME: kafka-2
       KAFKA_OPTS: "-javaagent:/etc/kafka/jmx-agent/jmx_prometheus_javaagent-0.19.0.jar=7071:/etc/kafka/jmx-agent/kafka-jmx.yml"
     expose:
       - "7071"
@@ -124,8 +122,6 @@ services:
       KAFKA_DEFAULT_REPLICATION_FACTOR: 3
       KAFKA_MIN_INSYNC_REPLICAS: 2
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-      KAFKA_JMX_PORT: 9101
-      KAFKA_JMX_HOSTNAME: kafka-3
       KAFKA_OPTS: "-javaagent:/etc/kafka/jmx-agent/jmx_prometheus_javaagent-0.19.0.jar=7071:/etc/kafka/jmx-agent/kafka-jmx.yml"
     expose:
       - "7071"
@@ -155,6 +151,12 @@ services:
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
       SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: PLAINTEXT
       SCHEMA_REGISTRY_DEBUG: "true"
+      # Prometheus: REST port 8081 has no /metrics — expose JMX via javaagent (same pattern as Kafka).
+      SCHEMA_REGISTRY_OPTS: "-javaagent:/etc/schema-registry/jmx-agent/jmx_prometheus_javaagent-0.19.0.jar=7072:/etc/schema-registry/jmx-agent/schema-registry-jmx.yml"
+    expose:
+      - "7072"
+    volumes:
+      - ./infra/prometheus/jmx-config:/etc/schema-registry/jmx-agent:ro
     depends_on:
       kafka-1: { condition: service_healthy }
       kafka-2: { condition: service_healthy }
@@ -206,9 +208,14 @@ services:
       - --storage.tsdb.retention.time=15d
       - --web.enable-lifecycle
     depends_on:
-      - kafka-1
-      - kafka-2
-      - kafka-3
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
     networks:
       - aerostream-network
 
@@ -291,6 +298,8 @@ services:
     container_name: kafka-connect
     ports:
       - "${KAFKA_CONNECT_PORT:-8083}:8083"
+      # JMX exporter (7073) — optional host access for curl /metrics (REST stays on 8083).
+      - "${KAFKA_CONNECT_METRICS_PORT:-7073}:7073"
     environment:
       CONNECT_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
       CONNECT_REST_PORT: 8083
@@ -310,8 +319,13 @@ services:
       CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components,/usr/share/java/kafka-connect-plugins
       CONNECT_LOG4J_LOGGERS: "org.apache.kafka.connect.runtime.rest=WARN,org.reflections=ERROR"
+      # Prometheus: REST :8083 has no /metrics (404). Expose JMX via javaagent (brokers use 7071, SR 7072).
+      KAFKA_OPTS: "-javaagent:/etc/kafka/jmx-agent/jmx_prometheus_javaagent-0.19.0.jar=7073:/etc/kafka/jmx-agent/kafka-connect-jmx.yml"
+    expose:
+      - "7073"
     volumes:
       - ./infra/kafka-connect/plugins:/usr/share/java/kafka-connect-plugins:ro
+      - ./infra/prometheus/jmx-config:/etc/kafka/jmx-agent:ro
     depends_on:
       kafka-1:
         condition: service_healthy

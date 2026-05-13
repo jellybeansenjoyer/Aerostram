@@ -2,6 +2,8 @@
 
 This document is an **end-to-end integration and demo guide**: it ties each phase to **project objectives** (real-time Kafka processing, Schema Registry governance, enrichment, analytics, ML inference), gives **repeatable test cases**, **startup automation**, and **precautions** so high telemetry rates do not overwhelm laptops or obscure failures.
 
+**Prometheus & Grafana only:** step-by-step observability test cases (targets, dashboards, PromQL) — [`prometheus-grafana-test-suite.md`](./prometheus-grafana-test-suite.md).
+
 ---
 
 ## Table of Contents
