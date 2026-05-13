@@ -261,7 +261,7 @@ Committed connector JSON leaves **`database.password` empty**; **`deploy-connect
 
 ### Prometheus
 
-`infra/prometheus/prometheus.yml` includes a `kafka-connect` scrape job for worker metrics.
+`infra/prometheus/prometheus.yml` includes a `kafka-connect` scrape job on **`:7073/metrics`** (JMX javaagent); Connect’s REST port **8083** does not expose Prometheus text at `/metrics`.
 
 ---
 

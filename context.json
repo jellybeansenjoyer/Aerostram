@@ -146,7 +146,7 @@
           "deliverables": [
             "KAFKA_OPTS=-javaagent on all 3 brokers, jmx-config volume mounted as /etc/kafka/jmx-agent",
             "infra/prometheus/jmx-config/kafka-jmx.yml — JMX metric scraping rules",
-            "infra/prometheus/prometheus.yml — scrapes kafka-1:7071, kafka-2:7071, kafka-3:7071 and schema-registry:8081",
+            "infra/prometheus/prometheus.yml — scrapes kafka-1:7071, kafka-2:7071, kafka-3:7071 and schema-registry:7072 (JMX javaagent; REST remains :8081)",
             "prometheus service (prom/prometheus:v2.51.0), port 9090, 15-day retention",
             "infra/grafana/provisioning/datasources/prometheus.yml — auto-provisions Prometheus datasource",
             "infra/grafana/provisioning/dashboards/provider.yml — scans /var/lib/grafana/dashboards",

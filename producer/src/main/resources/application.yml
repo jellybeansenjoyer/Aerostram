@@ -17,6 +17,9 @@ management:
   endpoint:
     health:
       show-details: always
+  metrics:
+    tags:
+      service: producer
   prometheus:
     metrics:
       export:

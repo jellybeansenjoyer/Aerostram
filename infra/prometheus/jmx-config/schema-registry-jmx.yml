@@ -1,0 +1,9 @@
+# JMX rules for Confluent Schema Registry — only kafka.schema.registry MBeans (small, fast).
+# REST API stays on 8081; Prometheus text is exposed by jmx_prometheus_javaagent on 7072.
+---
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+whitelistObjectNames:
+  - "kafka.schema.registry:*"
+rules:
+  - pattern: ".*"

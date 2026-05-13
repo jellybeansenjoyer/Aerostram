@@ -27,4 +27,7 @@ rules:
   - pattern: kafka.log<type=LogFlushStats, name=LogFlushRateAndTimeMs><>Count
     name: kafka_log_flush_rate_total
 
-  - pattern: ".*"
+  # Catch-all exports *all* remaining JMX beans → huge / slow scrapes and frequent
+  # Prometheus "context deadline exceeded" on kafka:7071. Keep disabled unless you
+  # need a full JMX dump for debugging (and raise scrape_timeout further if needed).
+  # - pattern: ".*"

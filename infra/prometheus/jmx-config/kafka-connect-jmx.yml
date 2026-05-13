@@ -1,0 +1,9 @@
+# JMX rules for Kafka Connect worker — only kafka.connect MBeans (small, fast).
+# REST API stays on 8083; Prometheus text is exposed by jmx_prometheus_javaagent on 7073.
+---
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+whitelistObjectNames:
+  - "kafka.connect:*"
+rules:
+  - pattern: ".*"

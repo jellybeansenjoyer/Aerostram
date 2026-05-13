@@ -202,7 +202,7 @@ Two environment variables point Provectus Kafka UI at Connect’s REST URL insid
 
 ### Prometheus
 
-A scrape job hits `kafka-connect:8083` on `/metrics` so Connect JVM and worker metrics are available alongside brokers and apps.
+A scrape job hits **`kafka-connect:7073`** on `/metrics` (JVM JMX exporter). The Connect REST API on **8083** has no `/metrics` endpoint (expect **404** if you curl it there).
 
 ---
 
@@ -476,6 +476,8 @@ The `postgres` service wires together image, WAL tuning, init scripts, persisten
     networks:
       - aerostream-network
 ```
+
+The **checked-in** `docker-compose.yml` adds **Prometheus JMX** for Connect: `KAFKA_OPTS` with `jmx_prometheus_javaagent` on **7073**, host mapping **`${KAFKA_CONNECT_METRICS_PORT:-7073}:7073`**, and volume `./infra/prometheus/jmx-config` → `/etc/kafka/jmx-agent` (snippet above omits those lines for brevity).
 
 - **`CONNECT_*_STORAGE_*`** — Topic names **must** match those created in `create-topics.sh`; RF=3 matches a three-broker HA story.
 - **Avro converters + Schema Registry URL** — Connector-produced Kafka records get **schema ids** in the value (and key where used), consistent with Phase 2 Telemetry.

@@ -3,20 +3,48 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: kafka-brokers
+  # One job per broker. IMPORTANT: scrape_interval MUST be greater than scrape_timeout
+  # (Prometheus can otherwise overlap scrapes / cancel contexts → flaky "up" on /targets).
+  # Legacy docker-compose KAFKA_JMX_PORT (RMI) is removed — it can slow javaagent scrapes.
+  - job_name: kafka-broker-1-jmx
+    scrape_interval: 90s
+    scrape_timeout: 60s
     static_configs:
       - targets:
           - kafka-1:7071
+        labels:
+          cluster: aerostream-local
+          broker: "kafka-1"
+
+  - job_name: kafka-broker-2-jmx
+    scrape_interval: 93s
+    scrape_timeout: 60s
+    static_configs:
+      - targets:
           - kafka-2:7071
+        labels:
+          cluster: aerostream-local
+          broker: "kafka-2"
+
+  - job_name: kafka-broker-3-jmx
+    scrape_interval: 96s
+    scrape_timeout: 60s
+    static_configs:
+      - targets:
           - kafka-3:7071
         labels:
           cluster: aerostream-local
+          broker: "kafka-3"
 
+  # Schema Registry REST is :8081 — it does NOT serve Prometheus text at /metrics (404).
+  # Metrics come from jmx_prometheus_javaagent on :7072 (see docker-compose SCHEMA_REGISTRY_OPTS).
   - job_name: schema-registry
+    scrape_interval: 45s
+    scrape_timeout: 20s
     metrics_path: /metrics
     static_configs:
       - targets:
-          - schema-registry:8081
+          - schema-registry:7072
 
   - job_name: aerostream-producer
     metrics_path: /actuator/prometheus
@@ -27,11 +55,15 @@ scrape_configs:
           service: producer
           cluster: aerostream-local
 
+  # Connect REST is :8083 — it does NOT serve Prometheus text at /metrics (404).
+  # Metrics come from jmx_prometheus_javaagent on :7073 (see docker-compose KAFKA_OPTS).
   - job_name: kafka-connect
+    scrape_interval: 45s
+    scrape_timeout: 20s
     metrics_path: /metrics
     static_configs:
       - targets:
-          - kafka-connect:8083
+          - kafka-connect:7073
         labels:
           service: kafka-connect
           cluster: aerostream-local

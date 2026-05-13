@@ -601,30 +601,13 @@ The javaagent argument format is: `-javaagent:<path_to_jar>=<port>:<path_to_conf
 
 ### 5.5 `prometheus.yml` — Scrape Configuration
 
-```yaml
-# infra/prometheus/prometheus.yml
-global:
-  scrape_interval: 15s       # pull metrics every 15 seconds
-  evaluation_interval: 15s   # evaluate alerting rules every 15 seconds
+See the canonical file **`infra/prometheus/prometheus.yml`** in the repo (it evolves with phases). In summary:
 
-scrape_configs:
-  - job_name: kafka-brokers
-    static_configs:
-      - targets:
-          - kafka-1:7071     # resolves to the JMX exporter inside kafka-1
-          - kafka-2:7071
-          - kafka-3:7071
-        labels:
-          cluster: aerostream-local  # added to every metric for multi-cluster support
+- **Kafka JMX:** one Prometheus job **per broker** (`kafka-broker-1-jmx`, `kafka-broker-2-jmx`, `kafka-broker-3-jmx`), each scraping `kafka-N:7071`, with **staggered** `scrape_interval` (**90s / 93s / 96s**) and **`scrape_timeout` (60s)**, always **interval > timeout** so Prometheus never overlaps scrapes (which would make `/targets` flap or time out randomly). RMI `KAFKA_JMX_PORT` is omitted in Compose so the javaagent path stays fast.
+- **Labels:** `cluster: aerostream-local` and `broker: kafka-N` on broker metrics for filtering in Grafana.
+- **Schema Registry:** job `schema-registry` scrapes **`schema-registry:7072/metrics`** (JMX javaagent). Port **8081** is REST only (`/subjects`, etc.) — **no** Prometheus exposition there (would 404).
 
-  - job_name: schema-registry
-    metrics_path: /metrics
-    static_configs:
-      - targets:
-          - schema-registry:8081
-```
-
-`scrape_interval: 15s` matches the Kafka JMX reporting interval, so you get fresh data on every scrape without polling faster than data updates.
+`scrape_interval` for global defaults remains **15s** unless overridden per job.
 
 The `cluster: aerostream-local` label is added to every scraped metric, making it easy to filter in Grafana when you later have multiple environments.
 
